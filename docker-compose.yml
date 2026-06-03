@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: birria-fusion-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: birria
+      POSTGRES_PASSWORD: birria_password
+      POSTGRES_DB: birria_fusion_ops
+    ports:
+      - "5432:5432"
+    volumes:
+      - birria_pg_data:/var/lib/postgresql/data
+
+volumes:
+  birria_pg_data:
