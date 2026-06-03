@@ -75,6 +75,22 @@ async function seed() {
     {title:'Rush Service Rule', category:'Operations', content:'Keep menu tight, prep visible, call out bottlenecks early, protect consommé quality.'}
   ]);
 
+  await insertIfEmpty('ingredients', [
+    {name:'Chuck Roast', category:'Meat', unit:'lb', quantity:20, cost:5.85, supplier:'Local Butcher', notes:'Primary birria protein'},
+    {name:'Dried Guajillo Chiles', category:'Spice', unit:'oz', quantity:16, cost:0.45, supplier:'Restaurant Depot', notes:'Key flavor base'},
+    {name:'Beef Shank', category:'Meat', unit:'lb', quantity:10, cost:4.20, supplier:'Local Butcher', notes:'Adds richness to consomme'}
+  ]);
+
+  await insertIfEmpty('expenses', [
+    {title:'Propane Refill', category:'Operations', amount:85, date:'2026-05-01', notes:'Monthly truck fuel'},
+    {title:'Commissary Fee', category:'Compliance', amount:350, date:'2026-05-01', notes:'Monthly commissary kitchen access'}
+  ]);
+
+  await insertIfEmpty('recipes', [
+    {name:'Birria Consomme Base', category:'Prep', yield_amount:12, yield_unit:'qt', notes:'Core broth. Simmer 4hrs minimum.'},
+    {name:'Quesabirria Assembly', category:'Service', yield_amount:1, yield_unit:'plate', notes:'Dip tortilla in birria oil, crisp on flat top, fill and fold.'}
+  ]);
+
   await query('INSERT INTO activity (message) VALUES ($1)', ['Production AI foundation seeded']);
   console.log('Seed complete. Login admin/admin123 unless .env changed.');
 }

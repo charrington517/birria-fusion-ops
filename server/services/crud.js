@@ -8,6 +8,10 @@ const tableMap = {
   staff: 'staff',
   equipment: 'equipment',
   suppliers: 'suppliers',
+  ingredients: 'ingredients',
+  vendors: 'suppliers',
+  expenses: 'expenses',
+  recipes: 'recipes',
   tasks: 'tasks',
   playbook: 'playbook',
   activity: 'activity'
@@ -21,6 +25,10 @@ const writableFields = {
   staff: ['name','role','status','hours','food_card_expiry','phone','notes'],
   equipment: ['name','status','location','qr_code','quantity_total','quantity_available','notes'],
   suppliers: ['name','category','phone','email','notes'],
+  ingredients: ['name','category','unit','quantity','cost','supplier','notes'],
+  vendors: ['name','category','phone','email','notes'],
+  expenses: ['title','category','amount','date','notes'],
+  recipes: ['name','category','yield_amount','yield_unit','notes'],
   tasks: ['title','category','status','priority','due_time','notes'],
   playbook: ['title','category','content']
 };

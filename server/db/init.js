@@ -126,6 +126,38 @@ async function init() {
       completed_at TIMESTAMPTZ
     );
 
+    CREATE TABLE IF NOT EXISTS ingredients (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      category TEXT,
+      unit TEXT,
+      quantity NUMERIC DEFAULT 0,
+      cost NUMERIC DEFAULT 0,
+      supplier TEXT,
+      notes TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS expenses (
+      id SERIAL PRIMARY KEY,
+      title TEXT NOT NULL,
+      category TEXT,
+      amount NUMERIC DEFAULT 0,
+      date DATE,
+      notes TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS recipes (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      category TEXT,
+      yield_amount NUMERIC DEFAULT 0,
+      yield_unit TEXT,
+      notes TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS activity (
       id SERIAL PRIMARY KEY,
       message TEXT NOT NULL,
