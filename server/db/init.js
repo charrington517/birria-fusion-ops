@@ -126,6 +126,15 @@ async function init() {
       completed_at TIMESTAMPTZ
     );
 
+    CREATE TABLE IF NOT EXISTS recipe_ingredients (
+      id            SERIAL PRIMARY KEY,
+      recipe_id     INTEGER NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+      ingredient_id INTEGER NOT NULL REFERENCES ingredients(id),
+      quantity      NUMERIC NOT NULL DEFAULT 0,
+      unit          TEXT,
+      created_at    TIMESTAMPTZ DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS ingredients (
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL,

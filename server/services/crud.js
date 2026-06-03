@@ -12,6 +12,7 @@ const tableMap = {
   vendors: 'suppliers',
   expenses: 'expenses',
   recipes: 'recipes',
+  'recipe-ingredients': 'recipe_ingredients',
   tasks: 'tasks',
   playbook: 'playbook',
   activity: 'activity'
@@ -29,6 +30,7 @@ const writableFields = {
   vendors: ['name','category','phone','email','notes'],
   expenses: ['title','category','amount','date','notes'],
   recipes: ['name','category','yield_amount','yield_unit','notes'],
+  'recipe-ingredients': ['recipe_id','ingredient_id','quantity','unit'],
   tasks: ['title','category','status','priority','due_time','notes'],
   playbook: ['title','category','content']
 };

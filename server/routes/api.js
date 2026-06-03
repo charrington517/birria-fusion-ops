@@ -3,6 +3,7 @@ const { requireAuth } = require('../middleware/auth');
 const crud = require('../services/crud');
 const { buildOverview } = require('../services/overview');
 const { createAiTask, askOllama } = require('../ai/ollama');
+const { calculateRecipeCost } = require('../services/costing');
 const { query } = require('../db/pool');
 
 const router = express.Router();
@@ -45,6 +46,10 @@ router.post('/ai/ask', async (req, res, next) => {
 router.post('/ai/tasks', async (req, res, next) => {
   try { res.status(201).json(await createAiTask(req.body.prompt || 'Analyze operations', req.body.context_type || 'general')); }
   catch (err) { next(err); }
+});
+
+router.get('/recipes/:id/cost', async (req, res, next) => {
+  try { res.json(await calculateRecipeCost(req.params.id)); } catch (err) { next(err); }
 });
 
 router.get('/health', async (req, res, next) => {

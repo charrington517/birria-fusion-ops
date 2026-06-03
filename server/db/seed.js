@@ -75,6 +75,12 @@ async function seed() {
     {title:'Rush Service Rule', category:'Operations', content:'Keep menu tight, prep visible, call out bottlenecks early, protect consommé quality.'}
   ]);
 
+  await insertIfEmpty('recipe_ingredients', [
+    {recipe_id:1, ingredient_id:1, quantity:8, unit:'lb'},
+    {recipe_id:1, ingredient_id:3, quantity:4, unit:'lb'},
+    {recipe_id:1, ingredient_id:2, quantity:3, unit:'oz'}
+  ]);
+
   await insertIfEmpty('ingredients', [
     {name:'Chuck Roast', category:'Meat', unit:'lb', quantity:20, cost:5.85, supplier:'Local Butcher', notes:'Primary birria protein'},
     {name:'Dried Guajillo Chiles', category:'Spice', unit:'oz', quantity:16, cost:0.45, supplier:'Restaurant Depot', notes:'Key flavor base'},
