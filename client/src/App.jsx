@@ -103,7 +103,7 @@ function App(){
   if(!auth.token) return <Login login={auth.login}/>;
   if(!overview) return <div className="login"><div className="card">Loading...</div></div>;
 
-  const title = nav.find(x=>x[0]===page)?.[2] || 'Birria Fusion Ops';
+  const title = nav.find(x=>x[0]===page)?.[2] || 'TruckFlow Ops';
   const data = overview.data[page] || [];
 
   async function save(collection, item, id){

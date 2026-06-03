@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-echo "=== Birria Fusion Ops Production AI Installer ==="
+echo "=== TruckFlow Ops Installer ==="
 
 if [ ! -f .env ]; then
   cp .env.example .env

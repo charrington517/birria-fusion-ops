@@ -1,4 +1,8 @@
-# Birria Fusion Ops Production AI
+# TruckFlow Ops
+
+Food truck operations platform. Current tenant: Birria Fusion.
+
+> Previously named Birria Fusion Ops. Repository path retained for stability.
 
 This is the real long-term foundation build.
 

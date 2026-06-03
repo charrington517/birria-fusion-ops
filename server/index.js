@@ -22,7 +22,7 @@ app.use(morgan('dev'));
 app.use(express.json({ limit: '5mb' }));
 
 app.get('/api/public-health', (req, res) => {
-  res.json({ ok:true, app:'Birria Fusion Ops Production AI' });
+  res.json({ ok:true, app:'TruckFlow Ops' });
 });
 
 app.use('/api/auth', authRoutes);
@@ -34,7 +34,7 @@ if (fs.existsSync(path.join(clientDist, 'index.html'))) {
   app.get('*', (req, res) => res.sendFile(path.join(clientDist, 'index.html')));
 } else {
   app.get('/', (req, res) => {
-    res.status(200).send('<h1>Birria Fusion Ops API is running</h1><p>Client build missing. Run: npm run build</p>');
+    res.status(200).send('<h1>TruckFlow Ops API is running</h1><p>Client build missing. Run: npm run build</p>');
   });
 }
 
@@ -44,5 +44,5 @@ app.use((err, req, res, next) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Birria Fusion Ops running on port ${PORT}`);
+  console.log(`TruckFlow Ops running on port ${PORT}`);
 });

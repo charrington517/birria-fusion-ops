@@ -1,8 +1,8 @@
 {
-  "name": "birria-fusion-ops-production-ai",
+  "name": "truckflow-ops",
   "version": "1.0.0",
   "private": true,
-  "description": "Production foundation for Birria Fusion Ops with PostgreSQL, React/Vite, Express, and AI/Ollama hooks.",
+  "description": "TruckFlow Ops — food truck operations platform. Current tenant: Birria Fusion.",
   "main": "server/index.js",
   "scripts": {
     "install:all": "npm install && npm install --prefix client",
