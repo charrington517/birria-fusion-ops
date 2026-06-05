@@ -136,6 +136,34 @@ async function init() {
       completed_at TIMESTAMPTZ
     );
 
+    -- Add inventory_item_id FK to ingredients if not present
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name='ingredients' AND column_name='inventory_item_id'
+      ) THEN
+        ALTER TABLE ingredients ADD COLUMN inventory_item_id INTEGER REFERENCES inventory(id);
+      END IF;
+    END $$;
+
+    CREATE TABLE IF NOT EXISTS sales_orders (
+      id            SERIAL PRIMARY KEY,
+      menu_item_id  INTEGER NOT NULL REFERENCES menu_items(id),
+      quantity      INTEGER NOT NULL DEFAULT 1,
+      event_id      INTEGER REFERENCES events(id),
+      note          TEXT,
+      sold_at       TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS inventory_transactions (
+      id              SERIAL PRIMARY KEY,
+      inventory_id    INTEGER NOT NULL REFERENCES inventory(id),
+      change_amount   NUMERIC NOT NULL,
+      reason          TEXT,
+      sales_order_id  INTEGER REFERENCES sales_orders(id),
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS recipe_ingredients (
       id            SERIAL PRIMARY KEY,
       recipe_id     INTEGER NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,

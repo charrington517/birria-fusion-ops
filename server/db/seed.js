@@ -97,6 +97,10 @@ async function seed() {
     {name:'Quesabirria Assembly', category:'Service', yield_amount:1, yield_unit:'plate', notes:'Dip tortilla in birria oil, crisp on flat top, fill and fold.'}
   ]);
 
+  // Map ingredients to inventory items
+  await query('UPDATE ingredients SET inventory_item_id=1 WHERE id=1 AND inventory_item_id IS NULL');
+  // Chuck Roast (ingredient 1) -> Birria Beef (inventory 1)
+
   // Link menu items to recipes via recipe_id
   await query('UPDATE menu_items SET recipe_id=2 WHERE id=1 AND recipe_id IS NULL');
   // Quesabirria Tacos (id=1) -> Quesabirria Assembly (recipe id=2)

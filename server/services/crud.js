@@ -13,6 +13,7 @@ const tableMap = {
   expenses: 'expenses',
   recipes: 'recipes',
   'recipe-ingredients': 'recipe_ingredients',
+  'inventory-transactions': 'inventory_transactions',
   tasks: 'tasks',
   playbook: 'playbook',
   activity: 'activity'
