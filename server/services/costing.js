@@ -37,4 +37,61 @@ async function calculateRecipeCost(recipeId) {
   };
 }
 
-module.exports = { calculateRecipeCost };
+
+function marginCategory(pct) {
+  if (pct >= 70) return 'Excellent';
+  if (pct >= 60) return 'Good';
+  if (pct >= 50) return 'Watch';
+  return 'Low';
+}
+
+async function calculateMenuItemCost(menuItemId) {
+  const itemResult = await query('SELECT * FROM menu_items WHERE id=$1', [menuItemId]);
+  const item = itemResult.rows[0];
+  if (!item) throw new Error('Menu item not found');
+
+  const menu_price = Number(item.price);
+  let recipe_id = null;
+  let recipe_name = null;
+  let recipe_cost = null;
+
+  if (item.recipe_id) {
+    const recipeCostData = await calculateRecipeCost(item.recipe_id);
+    recipe_id = recipeCostData.recipe_id;
+    recipe_name = recipeCostData.recipe_name;
+    recipe_cost = recipeCostData.cost_per_serving;
+  } else {
+    // Fall back to manually entered cost field
+    recipe_cost = Number(item.cost);
+    recipe_name = null;
+  }
+
+  const gross_profit = Number((menu_price - recipe_cost).toFixed(2));
+  const gross_margin_percent = menu_price > 0
+    ? Number(((gross_profit / menu_price) * 100).toFixed(1))
+    : 0;
+
+  return {
+    menu_item_id: item.id,
+    menu_item_name: item.name,
+    recipe_id,
+    recipe_name,
+    menu_price,
+    recipe_cost: Number(recipe_cost.toFixed(2)),
+    gross_profit,
+    gross_margin_percent,
+    margin_category: marginCategory(gross_margin_percent),
+    cost_source: item.recipe_id ? 'recipe' : 'manual'
+  };
+}
+
+async function calculateAllMenuCosts() {
+  const items = await query('SELECT id FROM menu_items ORDER BY id');
+  const results = await Promise.all(
+    items.rows.map(row => calculateMenuItemCost(row.id))
+  );
+  return results;
+}
+
+module.exports = { calculateRecipeCost, calculateMenuItemCost, calculateAllMenuCosts };
+

@@ -37,6 +37,16 @@ async function init() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
 
+    -- Add recipe_id FK to menu_items if not already present
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name='menu_items' AND column_name='recipe_id'
+      ) THEN
+        ALTER TABLE menu_items ADD COLUMN recipe_id INTEGER REFERENCES recipes(id);
+      END IF;
+    END $$;
+
     CREATE TABLE IF NOT EXISTS catering (
       id SERIAL PRIMARY KEY,
       client TEXT NOT NULL,

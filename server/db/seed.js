@@ -97,6 +97,10 @@ async function seed() {
     {name:'Quesabirria Assembly', category:'Service', yield_amount:1, yield_unit:'plate', notes:'Dip tortilla in birria oil, crisp on flat top, fill and fold.'}
   ]);
 
+  // Link menu items to recipes via recipe_id
+  await query('UPDATE menu_items SET recipe_id=2 WHERE id=1 AND recipe_id IS NULL');
+  // Quesabirria Tacos (id=1) -> Quesabirria Assembly (recipe id=2)
+
   await query('INSERT INTO activity (message) VALUES ($1)', ['Production AI foundation seeded']);
   console.log('Seed complete. Login admin/admin123 unless .env changed.');
 }
