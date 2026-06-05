@@ -110,6 +110,7 @@ function App(){
   if(!overview) return <div className="login"><div className="card">Loading...</div></div>;
 
   const title = nav.find(x=>x[0]===page)?.[2] || 'TruckFlow Ops';
+  const VERSION = 'v0.1.1';
   const data = overview.data[page] || [];
 
   async function save(collection, item, id){
@@ -137,7 +138,7 @@ function App(){
 
     <main className="main">
       <header className="topbar">
-        <div><div className="kicker">Command Center · {auth.user?.role}</div><h2>{title}</h2></div>
+        <div><div className="kicker">Command Center · {auth.user?.role} · {VERSION}</div><h2>{title}</h2></div>
         <div className="actions"><button onClick={()=>setPage('ai')}>AI</button><button onClick={auth.logout}><LogOut size={16}/> Logout</button></div>
       </header>
 
