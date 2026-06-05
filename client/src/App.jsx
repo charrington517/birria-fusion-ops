@@ -94,8 +94,14 @@ function App(){
   async function refresh(){
     try { setOverview(await auth.api('/api/overview')); }
     catch(err) {
-      if(err.message.includes('401') || err.message.includes('Missing auth') || err.message.includes('Invalid auth')) { auth.logout(); }
-      else { console.error(err); }
+      // On any auth error OR repeated failure, send user back to login
+      // Prevents permanent Loading... freeze from non-401 server errors
+      if(err.message.includes('401') || err.message.includes('Missing auth') || err.message.includes('Invalid auth') || err.message.includes('500') || err.message.includes('Failed')) {
+        auth.logout();
+      } else {
+        console.error(err);
+        auth.logout();
+      }
     }
   }
   useEffect(()=>{ if(auth.token) refresh(); },[auth.token]);
