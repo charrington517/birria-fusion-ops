@@ -5,6 +5,7 @@ const { buildOverview } = require('../services/overview');
 const { createAiTask, askOllama } = require('../ai/ollama');
 const { calculateRecipeCost, calculateMenuItemCost, calculateAllMenuCosts } = require('../services/costing');
 const { previewConsumption, consumeInventory } = require('../services/consumption');
+const { calculateEventProfit, getEventProfitSummary } = require('../services/profitability');
 const { query } = require('../db/pool');
 
 const router = express.Router();
@@ -98,6 +99,14 @@ router.get('/sales-orders', async (req, res, next) => {
     );
     res.json(result.rows);
   } catch (err) { next(err); }
+});
+
+router.get('/events/profit-summary', async (req, res, next) => {
+  try { res.json(await getEventProfitSummary()); } catch (err) { next(err); }
+});
+
+router.get('/events/:id/profit', async (req, res, next) => {
+  try { res.json(await calculateEventProfit(req.params.id)); } catch (err) { next(err); }
 });
 
 router.get('/health', async (req, res, next) => {

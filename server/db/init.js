@@ -136,6 +136,16 @@ async function init() {
       completed_at TIMESTAMPTZ
     );
 
+    -- Add event_id FK to expenses if not present
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name='expenses' AND column_name='event_id'
+      ) THEN
+        ALTER TABLE expenses ADD COLUMN event_id INTEGER REFERENCES events(id);
+      END IF;
+    END $$;
+
     -- Add inventory_item_id FK to ingredients if not present
     DO $$ BEGIN
       IF NOT EXISTS (

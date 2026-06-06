@@ -97,6 +97,15 @@ async function seed() {
     {name:'Quesabirria Assembly', category:'Service', yield_amount:1, yield_unit:'plate', notes:'Dip tortilla in birria oil, crisp on flat top, fill and fold.'}
   ]);
 
+  // Link test sales_orders to Toledo Market Day (event_id=1) for profitability testing
+  await query('UPDATE sales_orders SET event_id=1 WHERE event_id IS NULL');
+
+  // Add event expense for Toledo Market Day
+  await query(
+    'INSERT INTO expenses (title, category, amount, date, notes, event_id) SELECT $1,$2,$3,$4,$5,$6 WHERE NOT EXISTS (SELECT 1 FROM expenses WHERE event_id=1)',
+    ['Toledo Market Day — Propane', 'Operations', 45, '2026-05-10', 'Propane for event day', 1]
+  );
+
   // Map ingredients to inventory items
   await query('UPDATE ingredients SET inventory_item_id=1 WHERE id=1 AND inventory_item_id IS NULL');
   // Chuck Roast (ingredient 1) -> Birria Beef (inventory 1)

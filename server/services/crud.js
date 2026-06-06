@@ -29,7 +29,7 @@ const writableFields = {
   suppliers: ['name','category','phone','email','notes'],
   ingredients: ['name','category','unit','quantity','cost','supplier','notes'],
   vendors: ['name','category','phone','email','notes'],
-  expenses: ['title','category','amount','date','notes'],
+  expenses: ['title','category','amount','date','notes','event_id'],
   recipes: ['name','category','yield_amount','yield_unit','notes'],
   'recipe-ingredients': ['recipe_id','ingredient_id','quantity','unit'],
   tasks: ['title','category','status','priority','due_time','notes'],
