@@ -78,7 +78,25 @@ async function seed() {
   await insertIfEmpty('recipe_ingredients', [
     {recipe_id:1, ingredient_id:1, quantity:8, unit:'lb'},
     {recipe_id:1, ingredient_id:3, quantity:4, unit:'lb'},
-    {recipe_id:1, ingredient_id:2, quantity:3, unit:'oz'}
+    {recipe_id:1, ingredient_id:2, quantity:3, unit:'oz'},
+    {recipe_id:2, ingredient_id:1, quantity:0.25, unit:'lb'},
+    {recipe_id:2, ingredient_id:2, quantity:0.1, unit:'oz'},
+    {recipe_id:2, ingredient_id:5, quantity:3, unit:'each'},
+    {recipe_id:2, ingredient_id:6, quantity:0.25, unit:'qt'},
+    {recipe_id:2, ingredient_id:7, quantity:0.05, unit:'bunch'},
+    {recipe_id:2, ingredient_id:8, quantity:1, unit:'each'},
+    {recipe_id:2, ingredient_id:9, quantity:2.0, unit:'oz'},
+    {recipe_id:2, ingredient_id:10, quantity:0.1, unit:'each'}
+  ]);
+
+  // Additional ingredients for complete recipe costing
+  await insertIfEmpty('ingredients', [
+    {name:'Corn Tortilla', category:'Grain', unit:'each', cost:0.148, inventory_item_id:2},
+    {name:'Consomé', category:'Prep', unit:'qt', cost:2.10, inventory_item_id:3},
+    {name:'Cilantro', category:'Produce', unit:'bunch', cost:0.95, inventory_item_id:4},
+    {name:'To-Go Bowl', category:'Packaging', unit:'each', cost:0.42, inventory_item_id:5},
+    {name:'Oaxaca Cheese', category:'Dairy', unit:'oz', cost:0.375},
+    {name:'White Onion', category:'Produce', unit:'each', cost:0.75}
   ]);
 
   await insertIfEmpty('ingredients', [
