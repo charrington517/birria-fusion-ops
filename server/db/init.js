@@ -1,6 +1,15 @@
 const { query, close } = require('./pool');
 
 async function init() {
+  // Tables are ordered so every FK target exists before any reference to it:
+  //   recipes, ingredients, expenses, inventory  (no deps)
+  //   → then menu_items ALTER (refs recipes)
+  //   → then expenses ALTER (refs events)
+  //   → then ingredients ALTER (refs inventory)
+  //   → then recipe_ingredients (refs recipes + ingredients)
+  //   → then sales_orders (refs menu_items + events)
+  //   → then inventory_transactions (refs inventory + sales_orders)
+
   await query(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
@@ -25,27 +34,37 @@ async function init() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
 
-    CREATE TABLE IF NOT EXISTS menu_items (
+    CREATE TABLE IF NOT EXISTS recipes (
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL,
       category TEXT,
-      price NUMERIC DEFAULT 0,
-      cost NUMERIC DEFAULT 0,
-      active BOOLEAN DEFAULT true,
-      description TEXT,
-      prep_notes TEXT,
+      yield_amount NUMERIC DEFAULT 0,
+      yield_unit TEXT,
+      notes TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
 
-    -- Add recipe_id FK to menu_items if not already present
-    DO $$ BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_name='menu_items' AND column_name='recipe_id'
-      ) THEN
-        ALTER TABLE menu_items ADD COLUMN recipe_id INTEGER REFERENCES recipes(id);
-      END IF;
-    END $$;
+    CREATE TABLE IF NOT EXISTS ingredients (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      category TEXT,
+      unit TEXT,
+      quantity NUMERIC DEFAULT 0,
+      cost NUMERIC DEFAULT 0,
+      supplier TEXT,
+      notes TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS expenses (
+      id SERIAL PRIMARY KEY,
+      title TEXT NOT NULL,
+      category TEXT,
+      amount NUMERIC DEFAULT 0,
+      date DATE,
+      notes TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
 
     CREATE TABLE IF NOT EXISTS catering (
       id SERIAL PRIMARY KEY,
@@ -136,7 +155,36 @@ async function init() {
       completed_at TIMESTAMPTZ
     );
 
-    -- Add event_id FK to expenses if not present
+    CREATE TABLE IF NOT EXISTS activity (
+      id SERIAL PRIMARY KEY,
+      message TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- menu_items: created before recipe_id ALTER so the table exists first
+    CREATE TABLE IF NOT EXISTS menu_items (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      category TEXT,
+      price NUMERIC DEFAULT 0,
+      cost NUMERIC DEFAULT 0,
+      active BOOLEAN DEFAULT true,
+      description TEXT,
+      prep_notes TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- Add recipe_id FK to menu_items (recipes table now exists above)
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name='menu_items' AND column_name='recipe_id'
+      ) THEN
+        ALTER TABLE menu_items ADD COLUMN recipe_id INTEGER REFERENCES recipes(id);
+      END IF;
+    END $$;
+
+    -- Add event_id FK to expenses (events table now exists above)
     DO $$ BEGIN
       IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns
@@ -146,7 +194,7 @@ async function init() {
       END IF;
     END $$;
 
-    -- Add inventory_item_id FK to ingredients if not present
+    -- Add inventory_item_id FK to ingredients (inventory table now exists above)
     DO $$ BEGIN
       IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns
@@ -156,24 +204,7 @@ async function init() {
       END IF;
     END $$;
 
-    CREATE TABLE IF NOT EXISTS sales_orders (
-      id            SERIAL PRIMARY KEY,
-      menu_item_id  INTEGER NOT NULL REFERENCES menu_items(id),
-      quantity      INTEGER NOT NULL DEFAULT 1,
-      event_id      INTEGER REFERENCES events(id),
-      note          TEXT,
-      sold_at       TIMESTAMPTZ DEFAULT NOW()
-    );
-
-    CREATE TABLE IF NOT EXISTS inventory_transactions (
-      id              SERIAL PRIMARY KEY,
-      inventory_id    INTEGER NOT NULL REFERENCES inventory(id),
-      change_amount   NUMERIC NOT NULL,
-      reason          TEXT,
-      sales_order_id  INTEGER REFERENCES sales_orders(id),
-      created_at      TIMESTAMPTZ DEFAULT NOW()
-    );
-
+    -- recipe_ingredients: refs recipes + ingredients (both exist above)
     CREATE TABLE IF NOT EXISTS recipe_ingredients (
       id            SERIAL PRIMARY KEY,
       recipe_id     INTEGER NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
@@ -183,42 +214,24 @@ async function init() {
       created_at    TIMESTAMPTZ DEFAULT NOW()
     );
 
-    CREATE TABLE IF NOT EXISTS ingredients (
-      id SERIAL PRIMARY KEY,
-      name TEXT NOT NULL,
-      category TEXT,
-      unit TEXT,
-      quantity NUMERIC DEFAULT 0,
-      cost NUMERIC DEFAULT 0,
-      supplier TEXT,
-      notes TEXT,
-      created_at TIMESTAMPTZ DEFAULT NOW()
+    -- sales_orders: refs menu_items + events (both exist above)
+    CREATE TABLE IF NOT EXISTS sales_orders (
+      id           SERIAL PRIMARY KEY,
+      menu_item_id INTEGER NOT NULL REFERENCES menu_items(id),
+      quantity     INTEGER NOT NULL DEFAULT 1,
+      event_id     INTEGER REFERENCES events(id),
+      note         TEXT,
+      sold_at      TIMESTAMPTZ DEFAULT NOW()
     );
 
-    CREATE TABLE IF NOT EXISTS expenses (
-      id SERIAL PRIMARY KEY,
-      title TEXT NOT NULL,
-      category TEXT,
-      amount NUMERIC DEFAULT 0,
-      date DATE,
-      notes TEXT,
-      created_at TIMESTAMPTZ DEFAULT NOW()
-    );
-
-    CREATE TABLE IF NOT EXISTS recipes (
-      id SERIAL PRIMARY KEY,
-      name TEXT NOT NULL,
-      category TEXT,
-      yield_amount NUMERIC DEFAULT 0,
-      yield_unit TEXT,
-      notes TEXT,
-      created_at TIMESTAMPTZ DEFAULT NOW()
-    );
-
-    CREATE TABLE IF NOT EXISTS activity (
-      id SERIAL PRIMARY KEY,
-      message TEXT NOT NULL,
-      created_at TIMESTAMPTZ DEFAULT NOW()
+    -- inventory_transactions: refs inventory + sales_orders (both exist above)
+    CREATE TABLE IF NOT EXISTS inventory_transactions (
+      id             SERIAL PRIMARY KEY,
+      inventory_id   INTEGER NOT NULL REFERENCES inventory(id),
+      change_amount  NUMERIC NOT NULL,
+      reason         TEXT,
+      sales_order_id INTEGER REFERENCES sales_orders(id),
+      created_at     TIMESTAMPTZ DEFAULT NOW()
     );
   `);
   console.log('Database initialized.');
