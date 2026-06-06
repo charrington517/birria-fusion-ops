@@ -26,6 +26,19 @@ async function seed() {
     );
   }
 
+  // Phase 6B: additional inventory for Ramen and Torta recipes
+  await insertIfEmpty('inventory', [
+    {name:'Beef Shank', category:'Meat', unit:'lb', current_stock:0, min_stock:0, cost:4.20},
+    {name:'Dried Guajillo Chiles', category:'Spice', unit:'oz', current_stock:0, min_stock:0, cost:0.45},
+    {name:'White Onion', category:'Produce', unit:'each', current_stock:0, min_stock:0, cost:0.75},
+    {name:'Oaxaca Cheese', category:'Dairy', unit:'lb', current_stock:0, min_stock:0, cost:6.00},
+    {name:'Ramen Noodles', category:'Dry Goods', unit:'serving', current_stock:0, min_stock:0, cost:0.75},
+    {name:'Eggs', category:'Dairy', unit:'each', current_stock:0, min_stock:0, cost:0.35},
+    {name:'Bolillo Roll', category:'Bakery', unit:'each', current_stock:0, min_stock:0, cost:0.65},
+    {name:'Refried Beans', category:'Pantry', unit:'oz', current_stock:0, min_stock:0, cost:0.15},
+    {name:'Jalapeño', category:'Produce', unit:'each', current_stock:0, min_stock:0, cost:0.25}
+  ]);
+
   await insertIfEmpty('inventory', [
     {name:'Birria Beef', category:'Food', unit:'lb', current_stock:18, min_stock:20, max_stock:80, cost:5.85, supplier:'Local Butcher', forecast_per_event:12},
     {name:'Corn Tortillas', category:'Food', unit:'pack', current_stock:6, min_stock:8, max_stock:30, cost:3.25, supplier:'Restaurant Depot', forecast_per_event:5},
@@ -108,6 +121,11 @@ async function seed() {
   await insertIfEmpty('expenses', [
     {title:'Propane Refill', category:'Operations', amount:85, date:'2026-05-01', notes:'Monthly truck fuel'},
     {title:'Commissary Fee', category:'Compliance', amount:350, date:'2026-05-01', notes:'Monthly commissary kitchen access'}
+  ]);
+
+  await insertIfEmpty('recipes', [
+    {name:'Birria Ramen', category:'Signature', yield_amount:1, yield_unit:'bowl', notes:'Birria broth ramen with consomé base'},
+    {name:'Birria Torta', category:'Signature', yield_amount:1, yield_unit:'sandwich', notes:'Toasted torta with birria and cheese'}
   ]);
 
   await insertIfEmpty('recipes', [
