@@ -6,7 +6,10 @@ async function calculateRecipeCost(recipeId) {
   if (!recipe) throw new Error('Recipe not found');
 
   const linesResult = await query(`
-    SELECT ri.quantity, ri.unit, i.name AS ingredient_name, i.cost AS cost_per_unit
+    SELECT ri.quantity, ri.unit,
+           i.name AS ingredient_name,
+           i.cost AS cost_per_purchase,
+           COALESCE(i.servings_per_purchase, 1) AS servings_per_purchase
     FROM recipe_ingredients ri
     JOIN ingredients i ON i.id = ri.ingredient_id
     WHERE ri.recipe_id = $1
@@ -14,7 +17,8 @@ async function calculateRecipeCost(recipeId) {
 
   const lines = linesResult.rows;
   const total_cost = lines.reduce((sum, line) => {
-    return sum + (Number(line.quantity) * Number(line.cost_per_unit));
+    const cost_per_serving = Number(line.cost_per_purchase) / (Number(line.servings_per_purchase) || 1);
+    return sum + (Number(line.quantity) * cost_per_serving);
   }, 0);
 
   const yield_amount = Number(recipe.yield_amount) || 1;
@@ -27,16 +31,18 @@ async function calculateRecipeCost(recipeId) {
     yield_amount,
     yield_unit: recipe.yield_unit,
     cost_per_serving: Number(cost_per_serving.toFixed(2)),
-    lines: lines.map(l => ({
-      ingredient: l.ingredient_name,
-      quantity: Number(l.quantity),
-      unit: l.unit,
-      cost_per_unit: Number(l.cost_per_unit),
-      line_cost: Number((Number(l.quantity) * Number(l.cost_per_unit)).toFixed(2))
-    }))
+    lines: lines.map(l => {
+      const cpp = Number(l.cost_per_purchase) / (Number(l.servings_per_purchase) || 1);
+      return {
+        ingredient: l.ingredient_name,
+        quantity: Number(l.quantity),
+        unit: l.unit,
+        cost_per_serving: Number(cpp.toFixed(4)),
+        line_cost: Number((Number(l.quantity) * cpp).toFixed(2))
+      };
+    })
   };
 }
-
 
 function marginCategory(pct) {
   if (pct >= 70) return 'Excellent';
@@ -51,19 +57,15 @@ async function calculateMenuItemCost(menuItemId) {
   if (!item) throw new Error('Menu item not found');
 
   const menu_price = Number(item.price);
-  let recipe_id = null;
-  let recipe_name = null;
-  let recipe_cost = null;
+  let recipe_id = null, recipe_name = null, recipe_cost = null;
 
   if (item.recipe_id) {
-    const recipeCostData = await calculateRecipeCost(item.recipe_id);
-    recipe_id = recipeCostData.recipe_id;
-    recipe_name = recipeCostData.recipe_name;
-    recipe_cost = recipeCostData.cost_per_serving;
+    const r = await calculateRecipeCost(item.recipe_id);
+    recipe_id = r.recipe_id;
+    recipe_name = r.recipe_name;
+    recipe_cost = r.cost_per_serving;
   } else {
-    // Fall back to manually entered cost field
     recipe_cost = Number(item.cost);
-    recipe_name = null;
   }
 
   const gross_profit = Number((menu_price - recipe_cost).toFixed(2));
@@ -87,11 +89,7 @@ async function calculateMenuItemCost(menuItemId) {
 
 async function calculateAllMenuCosts() {
   const items = await query('SELECT id FROM menu_items ORDER BY id');
-  const results = await Promise.all(
-    items.rows.map(row => calculateMenuItemCost(row.id))
-  );
-  return results;
+  return Promise.all(items.rows.map(row => calculateMenuItemCost(row.id)));
 }
 
-module.exports = { calculateRecipeCost, calculateMenuItemCost, calculateAllMenuCosts };
-
+module.exports = { calculateRecipeCost, calculateMenuItemCost, calculateAllMenuCosts, marginCategory };

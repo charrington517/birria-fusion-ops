@@ -15,6 +15,17 @@ router.get('/overview', async (req, res, next) => {
   try { res.json(await buildOverview()); } catch (err) { next(err); }
 });
 
+// recipe-ingredients with optional recipe_id filter (must be before CRUD forEach)
+router.get('/recipe-ingredients', async (req, res, next) => {
+  try {
+    const { recipe_id } = req.query;
+    const result = recipe_id
+      ? await query('SELECT * FROM recipe_ingredients WHERE recipe_id=$1 ORDER BY id', [recipe_id])
+      : await query('SELECT * FROM recipe_ingredients ORDER BY id');
+    res.json(result.rows);
+  } catch (err) { next(err); }
+});
+
 Object.keys(crud.tableMap).forEach(collection => {
   router.get(`/${collection}`, async (req, res, next) => {
     try { res.json(await crud.list(collection)); } catch (err) { next(err); }

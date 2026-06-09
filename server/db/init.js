@@ -41,6 +41,9 @@ async function init() {
       yield_amount NUMERIC DEFAULT 0,
       yield_unit TEXT,
       notes TEXT,
+      prep_time TEXT,
+      cook_time TEXT,
+      instructions TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
 
@@ -53,6 +56,7 @@ async function init() {
       cost NUMERIC DEFAULT 0,
       supplier TEXT,
       notes TEXT,
+      servings_per_purchase NUMERIC DEFAULT 1,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
 
@@ -171,6 +175,7 @@ async function init() {
       active BOOLEAN DEFAULT true,
       description TEXT,
       prep_notes TEXT,
+      portions INTEGER DEFAULT 1,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
 
@@ -191,6 +196,36 @@ async function init() {
         WHERE table_name='expenses' AND column_name='event_id'
       ) THEN
         ALTER TABLE expenses ADD COLUMN event_id INTEGER REFERENCES events(id);
+      END IF;
+    END $$;
+
+    -- Add servings_per_purchase to ingredients if not present
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name='ingredients' AND column_name='servings_per_purchase'
+      ) THEN
+        ALTER TABLE ingredients ADD COLUMN servings_per_purchase NUMERIC DEFAULT 1;
+      END IF;
+    END $$;
+
+    -- Add prep_time/cook_time/instructions to recipes if not present
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='recipes' AND column_name='prep_time') THEN
+        ALTER TABLE recipes ADD COLUMN prep_time TEXT;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='recipes' AND column_name='cook_time') THEN
+        ALTER TABLE recipes ADD COLUMN cook_time TEXT;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='recipes' AND column_name='instructions') THEN
+        ALTER TABLE recipes ADD COLUMN instructions TEXT;
+      END IF;
+    END $$;
+
+    -- Add portions to menu_items if not present
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='menu_items' AND column_name='portions') THEN
+        ALTER TABLE menu_items ADD COLUMN portions INTEGER DEFAULT 1;
       END IF;
     END $$;
 

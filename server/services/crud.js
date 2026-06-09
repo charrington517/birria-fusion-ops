@@ -21,16 +21,16 @@ const tableMap = {
 
 const writableFields = {
   inventory: ['name','category','unit','current_stock','min_stock','max_stock','cost','supplier','forecast_per_event'],
-  menu: ['name','category','price','cost','active','description','prep_notes','recipe_id'],
+  menu: ['name','category','price','cost','active','description','prep_notes','recipe_id','portions'],
   catering: ['client','date','guests','status','value','deposit','location','service_type','notes','readiness'],
   events: ['name','date','location','status','expected_sales','notes'],
   staff: ['name','role','status','hours','food_card_expiry','phone','notes'],
   equipment: ['name','status','location','qr_code','quantity_total','quantity_available','notes'],
   suppliers: ['name','category','phone','email','notes'],
-  ingredients: ['name','category','unit','quantity','cost','supplier','notes'],
+  ingredients: ['name','category','unit','quantity','cost','supplier','notes','servings_per_purchase','inventory_item_id'],
   vendors: ['name','category','phone','email','notes'],
   expenses: ['title','category','amount','date','notes','event_id'],
-  recipes: ['name','category','yield_amount','yield_unit','notes'],
+  recipes: ['name','category','yield_amount','yield_unit','notes','prep_time','cook_time','instructions'],
   'recipe-ingredients': ['recipe_id','ingredient_id','quantity','unit'],
   tasks: ['title','category','status','priority','due_time','notes'],
   playbook: ['title','category','content']
