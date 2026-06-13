@@ -92,4 +92,91 @@ async function calculateAllMenuCosts() {
   return Promise.all(items.rows.map(row => calculateMenuItemCost(row.id)));
 }
 
-module.exports = { calculateRecipeCost, calculateMenuItemCost, calculateAllMenuCosts, marginCategory };
+
+// ── Compound Ingredient Costing ────────────────────────────────────────────────
+
+async function calculateCompoundCost(compoundId, visited = new Set()) {
+  // Cycle detection — if we have already visited this compound in this call chain,
+  // a circular reference exists (A→B→A). Throw immediately.
+  if (visited.has(Number(compoundId))) {
+    throw new Error(
+      'Circular reference detected in compound ingredient id=' + compoundId +
+      '. Chain: ' + Array.from(visited).join(' → ') + ' → ' + compoundId
+    );
+  }
+  const id = Number(compoundId);
+  visited.add(id);
+
+  // Load the compound header
+  const ciRes = await query(
+    'SELECT * FROM compound_ingredients WHERE id=$1',
+    [id]
+  );
+  if (!ciRes.rows.length) throw new Error('Compound ingredient not found: id=' + id);
+  const ci = ciRes.rows[0];
+
+  // Load all component rows
+  const compRes = await query(
+    `SELECT c.id, c.ingredient_id, c.nested_compound_id, c.quantity, c.unit,
+            i.name AS ing_name, i.cost AS ing_cost,
+            COALESCE(i.servings_per_purchase, 1) AS spp,
+            nc.name AS nested_name, nc.yield_amount AS nested_yield
+     FROM compound_ingredient_components c
+     LEFT JOIN ingredients i ON i.id = c.ingredient_id
+     LEFT JOIN compound_ingredients nc ON nc.id = c.nested_compound_id
+     WHERE c.parent_id = $1
+     ORDER BY c.id`,
+    [id]
+  );
+
+  let total_batch_cost = 0;
+  const components = [];
+
+  for (const row of compRes.rows) {
+    if (row.ingredient_id !== null) {
+      // Simple ingredient line
+      const cps = Number(row.ing_cost) / (Number(row.spp) || 1);
+      const line_cost = cps * Number(row.quantity);
+      total_batch_cost += line_cost;
+      components.push({
+        type: 'ingredient',
+        name: row.ing_name,
+        quantity: Number(row.quantity),
+        unit: row.unit,
+        cost_per_serving: Number(cps.toFixed(6)),
+        line_cost: Number(line_cost.toFixed(4))
+      });
+    } else {
+      // Nested compound — recurse (visited Set is passed by reference, guarding cycle)
+      const nested = await calculateCompoundCost(row.nested_compound_id, new Set(visited));
+      const nested_cps = nested.cost_per_yield_unit;
+      const line_cost = nested_cps * Number(row.quantity);
+      total_batch_cost += line_cost;
+      components.push({
+        type: 'compound',
+        name: nested.name,
+        quantity: Number(row.quantity),
+        unit: row.unit,
+        cost_per_yield_unit: Number(nested_cps.toFixed(6)),
+        line_cost: Number(line_cost.toFixed(4)),
+        nested: nested
+      });
+    }
+  }
+
+  const yield_amount = Number(ci.yield_amount) || 1;
+  const cost_per_yield_unit = total_batch_cost / yield_amount;
+
+  return {
+    id: ci.id,
+    name: ci.name,
+    category: ci.category,
+    yield_amount,
+    yield_unit: ci.yield_unit,
+    total_batch_cost: Number(total_batch_cost.toFixed(4)),
+    cost_per_yield_unit: Number(cost_per_yield_unit.toFixed(6)),
+    components
+  };
+}
+
+module.exports = { calculateRecipeCost, calculateMenuItemCost, calculateAllMenuCosts, marginCategory, calculateCompoundCost };

@@ -3,7 +3,7 @@ const { requireAuth } = require('../middleware/auth');
 const crud = require('../services/crud');
 const { buildOverview } = require('../services/overview');
 const { createAiTask, askOllama } = require('../ai/ollama');
-const { calculateRecipeCost, calculateMenuItemCost, calculateAllMenuCosts } = require('../services/costing');
+const { calculateRecipeCost, calculateMenuItemCost, calculateAllMenuCosts, calculateCompoundCost } = require('../services/costing');
 const { previewConsumption, consumeInventory } = require('../services/consumption');
 const { calculateEventProfit, getEventProfitSummary } = require('../services/profitability');
 const { query } = require('../db/pool');
@@ -24,6 +24,18 @@ router.get('/recipe-ingredients', async (req, res, next) => {
       : await query('SELECT * FROM recipe_ingredients ORDER BY id');
     res.json(result.rows);
   } catch (err) { next(err); }
+});
+
+// compound ingredient cost (recursive)
+router.get('/compound-ingredients/:id/cost', async (req, res, next) => {
+  try {
+    res.json(await calculateCompoundCost(req.params.id));
+  } catch (err) {
+    if (err.message && err.message.startsWith('Circular reference')) {
+      return res.status(400).json({ error: err.message });
+    }
+    next(err);
+  }
 });
 
 Object.keys(crud.tableMap).forEach(collection => {
