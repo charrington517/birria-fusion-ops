@@ -259,6 +259,49 @@ async function init() {
       sold_at      TIMESTAMPTZ DEFAULT NOW()
     );
 
+
+    -- compound_ingredients: batch-produced items (no FK deps except self-ref on components)
+    CREATE TABLE IF NOT EXISTS compound_ingredients (
+      id           SERIAL PRIMARY KEY,
+      name         TEXT NOT NULL,
+      category     TEXT,
+      yield_amount NUMERIC NOT NULL DEFAULT 1,
+      yield_unit   TEXT NOT NULL,
+      notes        TEXT,
+      active       BOOLEAN NOT NULL DEFAULT true,
+      created_at   TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- compound_ingredient_components: sub-ingredient rows for a compound
+    -- parent_id         -> the compound being defined
+    -- ingredient_id     -> a regular ingredient (XOR with nested_compound_id)
+    -- nested_compound_id -> a nested compound ingredient (XOR with ingredient_id)
+    CREATE TABLE IF NOT EXISTS compound_ingredient_components (
+      id                  SERIAL PRIMARY KEY,
+      parent_id           INTEGER NOT NULL
+                            REFERENCES compound_ingredients(id) ON DELETE CASCADE,
+      ingredient_id       INTEGER
+                            REFERENCES ingredients(id),
+      nested_compound_id  INTEGER
+                            REFERENCES compound_ingredients(id),
+      quantity            NUMERIC NOT NULL DEFAULT 0,
+      unit                TEXT NOT NULL,
+      created_at          TIMESTAMPTZ DEFAULT NOW(),
+      CONSTRAINT compound_components_exactly_one_source CHECK (
+        (ingredient_id IS NOT NULL AND nested_compound_id IS NULL) OR
+        (ingredient_id IS NULL     AND nested_compound_id IS NOT NULL)
+      )
+    );
+
+    -- Indexes for compound_ingredient_components lookups
+    CREATE INDEX IF NOT EXISTS idx_cic_parent_id
+      ON compound_ingredient_components(parent_id);
+    CREATE INDEX IF NOT EXISTS idx_cic_ingredient_id
+      ON compound_ingredient_components(ingredient_id)
+      WHERE ingredient_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_cic_nested_compound_id
+      ON compound_ingredient_components(nested_compound_id)
+      WHERE nested_compound_id IS NOT NULL;
     -- inventory_transactions: refs inventory + sales_orders (both exist above)
     CREATE TABLE IF NOT EXISTS inventory_transactions (
       id             SERIAL PRIMARY KEY,

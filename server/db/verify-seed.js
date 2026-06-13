@@ -16,6 +16,8 @@ const EXPECTED = {
   tasks:               2,
   playbook:            2,
   expenses:            3,
+  compound_ingredients:             1,
+  compound_ingredient_components:   3,
 };
 
 // Expected FK linkages verified by name
@@ -170,6 +172,75 @@ async function verify() {
       pass('"' + exp.name + '" cost=' + cost + ' spp=' + spp + ' cps=' + cps.toFixed(4));
     } else {
       fail('"' + exp.name + '"', 'expected cost=' + exp.cost + ' spp=' + exp.spp + ', got cost=' + cost + ' spp=' + spp);
+    }
+  }
+
+
+  // -- Compound ingredient checks -------------------------------------------
+  console.log('\nCompound ingredient checks:');
+
+  const ciRes = await query(
+    'SELECT id, name, yield_amount, yield_unit, active FROM compound_ingredients WHERE name=$1',
+    ['Birria Consom\u00e9 Base']
+  );
+  if (!ciRes.rows.length) {
+    fail('"Birria Consom\u00e9 Base"', 'compound ingredient not found');
+  } else {
+    const ci = ciRes.rows[0];
+    if (ci.active && Number(ci.yield_amount) === 12 && ci.yield_unit === 'qt') {
+      pass('"Birria Consom\u00e9 Base" exists: yield=' + ci.yield_amount + ' ' + ci.yield_unit + ', active=' + ci.active);
+    } else {
+      fail('"Birria Consom\u00e9 Base"', 'expected yield=12 qt active=true, got yield=' + ci.yield_amount + ' ' + ci.yield_unit + ' active=' + ci.active);
+    }
+    const compId = ci.id;
+    const compRes = await query(
+      `SELECT c.quantity, c.unit, i.name AS ing_name, c.nested_compound_id
+       FROM compound_ingredient_components c
+       LEFT JOIN ingredients i ON i.id = c.ingredient_id
+       WHERE c.parent_id = $1 ORDER BY i.name`,
+      [compId]
+    );
+    const expectedComponents = [
+      { name: 'Beef Shank',            qty: 4, unit: 'lb' },
+      { name: 'Chuck Roast Updated',   qty: 8, unit: 'lb' },
+      { name: 'Dried Guajillo Chiles', qty: 3, unit: 'oz' },
+    ];
+    if (compRes.rows.length !== 3) {
+      fail('"Birria Consom\u00e9 Base" components', 'expected 3, got ' + compRes.rows.length);
+    } else {
+      for (let j = 0; j < expectedComponents.length; j++) {
+        const exp = expectedComponents[j];
+        const got = compRes.rows[j];
+        if (got.ing_name === exp.name && Number(got.quantity) === exp.qty && got.unit === exp.unit && got.nested_compound_id === null) {
+          pass('"Birria Consom\u00e9 Base" component: ' + exp.name + ' x' + exp.qty + ' ' + exp.unit);
+        } else {
+          fail('"Birria Consom\u00e9 Base" component', 'expected ' + exp.name + ' x' + exp.qty + ' ' + exp.unit + ', got ' + got.ing_name + ' x' + got.quantity + ' ' + got.unit);
+        }
+      }
+    }
+    const batchRes = await query(
+      `SELECT ROUND(SUM((i.cost / NULLIF(i.servings_per_purchase, 0)) * c.quantity)::numeric, 2) AS batch_cost
+       FROM compound_ingredient_components c
+       JOIN ingredients i ON i.id = c.ingredient_id
+       WHERE c.parent_id = $1`,
+      [compId]
+    );
+    const batchCost = Number(batchRes.rows[0].batch_cost);
+    const cpq = batchCost / 12;
+    if (Math.abs(batchCost - 64.95) < 0.01) {
+      pass('"Birria Consom\u00e9 Base" batch cost: $' + batchCost + ' ($' + cpq.toFixed(4) + '/qt)');
+    } else {
+      fail('"Birria Consom\u00e9 Base" batch cost', 'expected $64.95, got $' + batchCost);
+    }
+    const xorRes = await query(
+      `SELECT COUNT(*)::int AS bad FROM compound_ingredient_components
+       WHERE parent_id = $1 AND ingredient_id IS NOT NULL AND nested_compound_id IS NOT NULL`,
+      [compId]
+    );
+    if (xorRes.rows[0].bad === 0) {
+      pass('"Birria Consom\u00e9 Base" XOR constraint satisfied');
+    } else {
+      fail('"Birria Consom\u00e9 Base" XOR constraint', xorRes.rows[0].bad + ' rows violate rule');
     }
   }
 

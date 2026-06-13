@@ -238,6 +238,47 @@ async function seed() {
   // Link test sales_orders to Toledo Market Day
   await query('UPDATE sales_orders SET event_id=1 WHERE event_id IS NULL');
 
+
+  // ── Compound Ingredients ─────────────────────────────────────────────────
+  const ciCount = await query('SELECT COUNT(*)::int AS count FROM compound_ingredients');
+  if (ciCount.rows[0].count === 0) {
+    // Insert Birria Consomé Base as a compound ingredient
+    const ciResult = await query(
+      `INSERT INTO compound_ingredients (name, category, yield_amount, yield_unit, notes, active)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [
+        'Birria Consomé Base',
+        'Broth',
+        12,
+        'qt',
+        'In-house birria broth. Batch yields 12 qt. Simmer 4 hrs minimum.',
+        true
+      ]
+    );
+    const compoundId = ciResult.rows[0].id;
+
+    // Resolve ingredient IDs by name for the 3 components
+    const chuckId   = await lookupId('ingredients', 'name', 'Chuck Roast Updated');
+    const shankId   = await lookupId('ingredients', 'name', 'Beef Shank');
+    const guajilloId = await lookupId('ingredients', 'name', 'Dried Guajillo Chiles');
+
+    // Insert component rows: 8 lb Chuck Roast, 4 lb Beef Shank, 3 oz Guajillo
+    const components = [
+      { ingredient_id: chuckId,    quantity: 8, unit: 'lb' },
+      { ingredient_id: shankId,    quantity: 4, unit: 'lb' },
+      { ingredient_id: guajilloId, quantity: 3, unit: 'oz' },
+    ];
+    for (const c of components) {
+      await query(
+        `INSERT INTO compound_ingredient_components
+           (parent_id, ingredient_id, nested_compound_id, quantity, unit)
+         VALUES ($1, $2, NULL, $3, $4)`,
+        [compoundId, c.ingredient_id, c.quantity, c.unit]
+      );
+    }
+    console.log('Seeded compound ingredient: Birria Consomé Base (id=' + compoundId + ')');
+  }
+
   await query('INSERT INTO activity (message) VALUES ($1)', ['Production AI foundation seeded']);
   console.log('Seed complete. Login: admin/admin123 (or .env overrides)');
 }
