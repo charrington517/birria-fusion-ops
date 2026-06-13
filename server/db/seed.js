@@ -55,17 +55,17 @@ async function seed() {
     { name: 'Chuck Roast Updated',   category: 'Meat',      unit: 'lb',      cost: 5.85  },
     { name: 'Dried Guajillo Chiles', category: 'Spice',     unit: 'oz',      cost: 0.45  },
     { name: 'Beef Shank',            category: 'Meat',      unit: 'lb',      cost: 4.20  },
-    { name: 'Corn Tortilla',         category: 'Grain',     unit: 'each',    cost: 0.148 },
+    { name: 'Corn Tortilla',         category: 'Grain',     unit: 'each',    cost: 3.25,  servings_per_purchase: 22  },
     { name: 'Consom\u00e9',          category: 'Prep',      unit: 'qt',      cost: 2.10  },
     { name: 'Cilantro',              category: 'Produce',   unit: 'bunch',   cost: 0.95  },
-    { name: 'To-Go Bowl',            category: 'Packaging', unit: 'each',    cost: 0.42  },
-    { name: 'Oaxaca Cheese',         category: 'Dairy',     unit: 'oz',      cost: 0.375 },
+    { name: 'To-Go Bowl',            category: 'Packaging', unit: 'each',    cost: 42.00, servings_per_purchase: 100 },
+    { name: 'Oaxaca Cheese',         category: 'Dairy',     unit: 'oz',      cost: 6.00,  servings_per_purchase: 16  },
     { name: 'White Onion',           category: 'Produce',   unit: 'each',    cost: 0.75  },
     { name: 'Ramen Noodles',         category: 'Dry Goods', unit: 'serving', cost: 0.75  },
     { name: 'Egg',                   category: 'Dairy',     unit: 'each',    cost: 0.35  },
     { name: 'Bolillo Roll',          category: 'Bakery',    unit: 'each',    cost: 0.65  },
     { name: 'Refried Beans',         category: 'Pantry',    unit: 'oz',      cost: 0.15  },
-    { name: 'Jalape\u00f1o Slice', category: 'Produce', unit: 'slice',  cost: 0.025 },
+    { name: 'Jalape\u00f1o Slice', category: 'Produce', unit: 'slice',  cost: 0.25,  servings_per_purchase: 10  },
   ]);
 
   // Link ingredients -> inventory by name

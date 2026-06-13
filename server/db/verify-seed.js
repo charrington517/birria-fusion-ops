@@ -132,7 +132,7 @@ async function verify() {
   console.log('\nRecipe cost sanity (must be > 0):');
   const costRes = await query(
     `SELECT r.name,
-            ROUND(SUM(ri.quantity * i.cost)::numeric, 2) AS cost
+            ROUND(SUM(ri.quantity * (i.cost / NULLIF(i.servings_per_purchase, 0)))::numeric, 2) AS cost
      FROM recipes r
      JOIN recipe_ingredients ri ON ri.recipe_id = r.id
      JOIN ingredients i ON i.id = ri.ingredient_id
@@ -143,6 +143,33 @@ async function verify() {
       pass(`"${row.name}" cost: $${row.cost}`);
     } else {
       fail(`"${row.name}"`, 'cost is $0 — missing recipe_ingredients or ingredient costs');
+    }
+  }
+
+
+  // ── servings_per_purchase correctness ─────────────────────────────────────
+  console.log('\nServings per purchase (spp) checks:');
+  const sppExpected = [
+    { name: 'Corn Tortilla',   cost: 3.25,  spp: 22,  cps: 3.25/22 },
+    { name: 'To-Go Bowl',      cost: 42.00, spp: 100, cps: 42.00/100 },
+    { name: 'Oaxaca Cheese',   cost: 6.00,  spp: 16,  cps: 6.00/16 },
+    { name: 'Jalapeño Slice', cost: 0.25, spp: 10, cps: 0.25/10 },
+  ];
+  for (const exp of sppExpected) {
+    const res = await query(
+      'SELECT cost::float AS cost, servings_per_purchase::float AS spp FROM ingredients WHERE name=$1',
+      [exp.name]
+    );
+    if (!res.rows.length) {
+      fail('"' + exp.name + '"', 'ingredient not found');
+      continue;
+    }
+    const { cost, spp } = res.rows[0];
+    const cps = cost / spp;
+    if (Math.abs(cost - exp.cost) < 0.001 && Math.abs(spp - exp.spp) < 0.1) {
+      pass('"' + exp.name + '" cost=' + cost + ' spp=' + spp + ' cps=' + cps.toFixed(4));
+    } else {
+      fail('"' + exp.name + '"', 'expected cost=' + exp.cost + ' spp=' + exp.spp + ', got cost=' + cost + ' spp=' + spp);
     }
   }
 
