@@ -19,12 +19,12 @@ const nav = [
   ['ai',         Brain,        'AI Copilot'],
 ];
 
-const MENU_CATEGORIES   = ['Entree','Appetizer','Side','Beverage','Dessert','Sauce','Signature','Fusion','Sandwich'];
-const UNIT_OPTIONS      = ['lb','oz','kg','g','each','pack','case','bunch','slice','serving','qt','cup','tbsp','tsp','ml','liter'];
+const INV_CATEGORIES  = ['Food','Disposables','Supplies','Equipment','Other'];
+const MENU_CATEGORIES = ['Entree','Appetizer','Side','Beverage','Dessert','Sauce','Signature','Fusion','Sandwich'];
+const UNIT_OPTIONS    = ['lb','oz','kg','g','each','pack','case','bunch','slice','serving','qt','cup','tbsp','tsp','ml','liter'];
 const RECIPE_CATEGORIES = ['Prep','Service','Signature','Sauce','Base','Fusion','Sandwich','Other'];
 
 const fields = {
-  inventory: ['name','category','unit','current_stock','min_stock','max_stock','cost','supplier','forecast_per_event'],
   catering:  ['client','date','guests','status','value','deposit','location','service_type','notes','readiness'],
   events:    ['name','date','location','status','expected_sales','notes'],
   staff:     ['name','role','status','hours','food_card_expiry','phone','notes'],
@@ -38,138 +38,232 @@ const money = n => '$' + Number(n||0).toLocaleString(undefined,{minimumFractionD
 const pct   = n => Number(n||0).toFixed(1)+'%';
 function marginColor(p){ if(p>=70) return '#86efac'; if(p>=50) return '#fde68a'; return '#fca5a5'; }
 function marginLabel(p){ if(p>=70) return 'Excellent'; if(p>=60) return 'Good'; if(p>=50) return 'Watch'; return 'Low'; }
+function stockColor(cur, min){ if(Number(cur)<=0) return '#fca5a5'; if(Number(cur)<=Number(min)) return '#fde68a'; return '#86efac'; }
+function stockLabel(cur, min){ if(Number(cur)<=0) return 'Out'; if(Number(cur)<=Number(min)) return 'Low'; return 'OK'; }
 
-// ── Auth hook ──────────────────────────────────────────────────────────────────
+// ── Auth ───────────────────────────────────────────────────────────────────────
 function useApi() {
-  const [token, setToken] = useState(localStorage.getItem('bf_token') || '');
-  const [user,  setUser]  = useState(JSON.parse(localStorage.getItem('bf_user') || 'null'));
-
-  async function api(path, opts={}) {
-    const res = await fetch(path, {
-      ...opts,
-      headers: { 'Content-Type':'application/json', ...(opts.headers||{}), ...(token ? {Authorization:`Bearer ${token}`} : {}) }
-    });
-    if (!res.ok) throw new Error(await res.text());
+  const [token,setToken] = useState(localStorage.getItem('bf_token')||'');
+  const [user, setUser]  = useState(JSON.parse(localStorage.getItem('bf_user')||'null'));
+  async function api(path,opts={}) {
+    const res = await fetch(path,{...opts,headers:{'Content-Type':'application/json',...(opts.headers||{}),...(token?{Authorization:`Bearer ${token}`}:{})}});
+    if(!res.ok) throw new Error(await res.text());
     return res.json();
   }
-
-  async function login(username, password) {
-    const res = await fetch('/api/auth/login', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username,password}) });
-    if (!res.ok) throw new Error(await res.text());
+  async function login(username,password) {
+    const res = await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
+    if(!res.ok) throw new Error(await res.text());
     const data = await res.json();
-    localStorage.setItem('bf_token', data.token);
-    localStorage.setItem('bf_user',  JSON.stringify(data.user));
+    localStorage.setItem('bf_token',data.token); localStorage.setItem('bf_user',JSON.stringify(data.user));
     setToken(data.token); setUser(data.user);
   }
-
   function logout(){ localStorage.removeItem('bf_token'); localStorage.removeItem('bf_user'); setToken(''); setUser(null); }
-  return { token, user, api, login, logout };
+  return {token,user,api,login,logout};
 }
 
-// ── Small shared components ────────────────────────────────────────────────────
+// ── Shared ─────────────────────────────────────────────────────────────────────
 function Login({login}) {
-  const [error,setError] = useState('');
-  async function submit(e){ e.preventDefault(); setError(''); const f=new FormData(e.currentTarget); try { await login(f.get('username'),f.get('password')); } catch { setError('Login failed.'); } }
+  const [err,setErr]=useState('');
+  async function submit(e){ e.preventDefault(); setErr(''); const f=new FormData(e.currentTarget); try{await login(f.get('username'),f.get('password'));}catch{setErr('Login failed.');} }
   return <div className="login"><form className="card form" onSubmit={submit}>
     <div className="brand"><div className="logo">TF</div><div><h1>TruckFlow Ops</h1><p>Operations Intelligence</p></div></div>
     <input name="username" defaultValue="admin" placeholder="Username"/>
     <input name="password" defaultValue="admin123" type="password" placeholder="Password"/>
-    {error && <div className="badge red">{error}</div>}
+    {err&&<div className="badge red">{err}</div>}
     <button className="primary">Login</button>
   </form></div>;
 }
-
 function Metric({label,value,note}){ return <div className="card"><div className="metric-label">{label}</div><div className="metric-value">{value}</div><div className="muted">{note}</div></div>; }
 function Badge({children,color=''}){ return <span className={`badge ${color}`}>{children}</span>; }
 function Sel({value,onChange,options,style={}}){
   return <select value={value} onChange={e=>onChange(e.target.value)} style={{background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:12,padding:'11px 13px',width:'100%',fontSize:'inherit',...style}}>
-    {options.map(o => <option key={o} value={o}>{o}</option>)}
+    {options.map(o=><option key={o} value={o}>{o}</option>)}
   </select>;
 }
 
-// ── App root ───────────────────────────────────────────────────────────────────
-function App() {
-  const auth = useApi();
-  const [page,    setPage]    = useState('today');
-  const [overview,setOverview]= useState(null);
-  const [modal,   setModal]   = useState(null);
-  const [aiPrompt,setAiPrompt]= useState('What needs attention today?');
-  const [aiAnswer,setAiAnswer]= useState('');
+// ── App ────────────────────────────────────────────────────────────────────────
+function App(){
+  const auth=useApi();
+  const [page,setPage]=useState('today');
+  const [overview,setOverview]=useState(null);
+  const [modal,setModal]=useState(null);
+  const [aiPrompt,setAiPrompt]=useState('What needs attention today?');
+  const [aiAnswer,setAiAnswer]=useState('');
 
-  const refresh = useCallback(async () => {
-    try { setOverview(await auth.api('/api/overview')); }
-    catch { auth.logout(); }
-  }, [auth.token]);
+  const refresh=useCallback(async()=>{ try{setOverview(await auth.api('/api/overview'));}catch{auth.logout();} },[auth.token]);
+  useEffect(()=>{ if(auth.token) refresh(); },[auth.token]);
 
-  useEffect(() => { if (auth.token) refresh(); }, [auth.token]);
+  if(!auth.token) return <Login login={auth.login}/>;
+  if(!overview)  return <div className="login"><div className="card">Loading...</div></div>;
 
-  if (!auth.token)  return <Login login={auth.login}/>;
-  if (!overview)    return <div className="login"><div className="card">Loading...</div></div>;
+  const VERSION='v0.3.0';
+  const title=nav.find(x=>x[0]===page)?.[2]||'TruckFlow Ops';
+  const data=overview.data[page]||[];
 
-  const VERSION = 'v0.2.0';
-  const title   = nav.find(x=>x[0]===page)?.[2] || 'TruckFlow Ops';
-  const data    = overview.data[page] || [];
-
-  async function save(collection, item, id) {
-    await auth.api(`/api/${collection}${id?`/${id}`:''}`, { method:id?'PUT':'POST', body:JSON.stringify(item) });
+  async function save(collection,item,id){
+    await auth.api(`/api/${collection}${id?`/${id}`:''}`,{method:id?'PUT':'POST',body:JSON.stringify(item)});
     setModal(null); await refresh();
   }
-  async function remove(collection, id) {
-    if (!confirm('Delete this item?')) return;
-    await auth.api(`/api/${collection}/${id}`, { method:'DELETE' });
+  async function remove(collection,id){
+    if(!confirm('Delete this item?')) return;
+    await auth.api(`/api/${collection}/${id}`,{method:'DELETE'});
     await refresh();
   }
 
   return <div className="app">
     <aside className="sidebar">
       <div className="brand"><div className="logo">TF</div><div><h1>TruckFlow</h1><p>Operations Intelligence</p></div></div>
-      {nav.map(([id,Icon,label]) => <button key={id} onClick={()=>setPage(id)} className={`navbtn ${page===id?'active':''}`}><Icon size={18}/>{label}</button>)}
+      {nav.map(([id,Icon,label])=><button key={id} onClick={()=>setPage(id)} className={`navbtn ${page===id?'active':''}`}><Icon size={18}/>{label}</button>)}
     </aside>
-
     <main className="main">
       <header className="topbar">
         <div><div className="kicker">Command Center · {auth.user?.role} · {VERSION}</div><h2>{title}</h2></div>
         <div className="actions"><button onClick={()=>setPage('ai')}>AI</button><button onClick={auth.logout}><LogOut size={16}/> Logout</button></div>
       </header>
-
       <section className="content">
         {page==='today'       && <Today overview={overview}/>}
         {page==='ai'          && <AiPage aiPrompt={aiPrompt} setAiPrompt={setAiPrompt} aiAnswer={aiAnswer} setAiAnswer={setAiAnswer} api={auth.api}/>}
-        {page==='events'      && <EventsPage events={data} menuItems={overview.data.menu||[]} api={auth.api} refresh={refresh} setModal={setModal} remove={remove}/>}
+        {page==='inventory'   && <InventoryPage items={data} api={auth.api} refresh={refresh}/>}
+        {page==='ingredients' && <IngredientsPage ingredients={data} inventory={overview.data.inventory||[]} api={auth.api} refresh={refresh}/>}
         {page==='recipes'     && <RecipesPage recipes={data} ingredients={overview.data.ingredients||[]} api={auth.api} refresh={refresh}/>}
         {page==='menu'        && <MenuPage menuItems={data} recipes={overview.data.recipes||[]} api={auth.api} refresh={refresh}/>}
-        {page==='ingredients' && <IngredientsPage ingredients={data} inventory={overview.data.inventory||[]} api={auth.api} refresh={refresh}/>}
-        {page!=='today' && page!=='ai' && page!=='events' && page!=='recipes' && page!=='menu' && page!=='ingredients' &&
+        {page==='events'      && <EventsPage events={data} menuItems={overview.data.menu||[]} api={auth.api} refresh={refresh} setModal={setModal} remove={remove}/>}
+        {page!=='today'&&page!=='ai'&&page!=='inventory'&&page!=='ingredients'&&page!=='recipes'&&page!=='menu'&&page!=='events'&&
           <Collection page={page} data={data} setModal={setModal} remove={remove}/>}
       </section>
     </main>
-
-    {modal && <EditModal modal={modal} save={save} close={()=>setModal(null)}/>}
+    {modal&&<EditModal modal={modal} save={save} close={()=>setModal(null)}/>}
   </div>;
 }
 
-// ── AI page ────────────────────────────────────────────────────────────────────
-function AiPage({aiPrompt,setAiPrompt,aiAnswer,setAiAnswer,api}) {
-  async function ask(){ setAiAnswer('Thinking...'); const r=await api('/api/ai/ask',{method:'POST',body:JSON.stringify({prompt:aiPrompt})}); setAiAnswer(r.text); }
-  return <div className="grid two">
-    <div className="card"><h3>AI Copilot</h3><p className="muted">Rules-based until AI_ENABLED=true.</p><div className="form"><textarea value={aiPrompt} onChange={e=>setAiPrompt(e.target.value)}/><button className="primary" onClick={ask}>Ask AI</button></div></div>
-    <div className="card"><h3>Answer</h3><pre style={{whiteSpace:'pre-wrap'}}>{aiAnswer||'Ask a question about operations.'}</pre></div>
-  </div>;
-}
+// ── Inventory Page ─────────────────────────────────────────────────────────────
+function InventoryPage({items, api, refresh}){
+  const [editing,setEditing]=useState(null);
 
-// ── Ingredients Page ───────────────────────────────────────────────────────────
-function IngredientsPage({ingredients, inventory, api, refresh}) {
-  const [editing, setEditing] = useState(null); // null | 'new' | ingredient object
-
-  async function save(form) {
-    const id = form.id;
-    await api(`/api/ingredients${id?`/${id}`:''}`, { method:id?'PUT':'POST', body:JSON.stringify(form) });
+  async function save(form){
+    const id=form.id;
+    await api(`/api/inventory${id?`/${id}`:''}`,{method:id?'PUT':'POST',body:JSON.stringify(form)});
     setEditing(null); await refresh();
   }
-  async function del(id) {
-    if (!confirm('Delete ingredient?')) return;
-    await api(`/api/ingredients/${id}`, { method:'DELETE' });
-    await refresh();
+  async function del(id){
+    if(!confirm('Delete inventory item?')) return;
+    await api(`/api/inventory/${id}`,{method:'DELETE'}); await refresh();
+  }
+
+  // Group by category
+  const grouped={};
+  items.forEach(item=>{ const c=item.category||'Other'; if(!grouped[c]) grouped[c]=[]; grouped[c].push(item); });
+
+  return <>
+    <div className="card" style={{marginBottom:18,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+      <div><h3>Inventory</h3><p className="muted">{items.length} items</p></div>
+      <button className="primary" onClick={()=>setEditing({})}>Add Item</button>
+    </div>
+    {INV_CATEGORIES.filter(c=>grouped[c]?.length).map(cat=><div key={cat} style={{marginBottom:24}}>
+      <div style={{color:'#fb923c',fontWeight:900,fontSize:13,textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:10,borderBottom:'1px solid rgba(249,115,22,.3)',paddingBottom:6}}>{cat}</div>
+      <div className="grid cards">
+        {(grouped[cat]||[]).map(item=>{
+          const sl=stockLabel(item.current_stock,item.min_stock);
+          const sc=stockColor(item.current_stock,item.min_stock);
+          return <div className="card" key={item.id}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+              <h3 style={{margin:'0 0 4px'}}>{item.name}</h3>
+              <span className="badge" style={{background:sc==='#86efac'?'rgba(34,197,94,.18)':sc==='#fde68a'?'rgba(234,179,8,.18)':'rgba(239,68,68,.2)',color:sc,fontSize:11}}>{sl}</span>
+            </div>
+            <div className="inv-grid" style={{marginTop:8}}>
+              <div className="inv-stat"><div className="muted" style={{fontSize:11}}>In Stock</div><div style={{fontWeight:900,color:sc}}>{Number(item.current_stock).toFixed(2)} {item.unit}</div></div>
+              <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Min / Max</div><div>{item.min_stock} / {item.max_stock||'—'} {item.unit}</div></div>
+              <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Unit Cost</div><div style={{color:'#fca5a5'}}>{money(item.cost)}</div></div>
+              <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Category</div><div>{item.category||'—'}</div></div>
+            </div>
+            {item.supplier&&<p className="muted" style={{fontSize:12,marginTop:6}}>Supplier: {item.supplier}</p>}
+            <div className="actions" style={{marginTop:10}}>
+              <button onClick={()=>setEditing(item)}>Edit</button>
+              <button onClick={()=>del(item.id)}>Delete</button>
+            </div>
+          </div>;
+        })}
+      </div>
+    </div>)}
+    {/* Uncategorised items not in INV_CATEGORIES */}
+    {Object.keys(grouped).filter(c=>!INV_CATEGORIES.includes(c)).map(cat=><div key={cat} style={{marginBottom:24}}>
+      <div style={{color:'#a1a1aa',fontWeight:900,fontSize:13,textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:10}}>{cat}</div>
+      <div className="grid cards">
+        {grouped[cat].map(item=>{
+          const sl=stockLabel(item.current_stock,item.min_stock);
+          const sc=stockColor(item.current_stock,item.min_stock);
+          return <div className="card" key={item.id}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+              <h3 style={{margin:'0 0 4px'}}>{item.name}</h3>
+              <span className="badge" style={{background:sc==='#86efac'?'rgba(34,197,94,.18)':sc==='#fde68a'?'rgba(234,179,8,.18)':'rgba(239,68,68,.2)',color:sc,fontSize:11}}>{sl}</span>
+            </div>
+            <div className="inv-grid" style={{marginTop:8}}>
+              <div className="inv-stat"><div className="muted" style={{fontSize:11}}>In Stock</div><div style={{fontWeight:900,color:sc}}>{Number(item.current_stock).toFixed(2)} {item.unit}</div></div>
+              <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Min / Max</div><div>{item.min_stock} / {item.max_stock||'—'} {item.unit}</div></div>
+              <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Unit Cost</div><div style={{color:'#fca5a5'}}>{money(item.cost)}</div></div>
+              <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Category</div><div>{item.category||'—'}</div></div>
+            </div>
+            {item.supplier&&<p className="muted" style={{fontSize:12,marginTop:6}}>Supplier: {item.supplier}</p>}
+            <div className="actions" style={{marginTop:10}}>
+              <button onClick={()=>setEditing(item)}>Edit</button>
+              <button onClick={()=>del(item.id)}>Delete</button>
+            </div>
+          </div>;
+        })}
+      </div>
+    </div>)}
+    {editing!==null&&<InventoryModal item={editing} onSave={save} onClose={()=>setEditing(null)}/>}
+  </>;
+}
+
+function InventoryModal({item,onSave,onClose}){
+  const isNew=!item.id;
+  const [form,setForm]=useState({
+    id:item.id, name:item.name||'', category:item.category||'Food',
+    unit:item.unit||'each', current_stock:item.current_stock??'',
+    min_stock:item.min_stock??'', max_stock:item.max_stock??'',
+    cost:item.cost||'', supplier:item.supplier||'', forecast_per_event:item.forecast_per_event||''
+  });
+  function set(k,v){setForm(f=>({...f,[k]:v}));}
+  return <div className="modal"><div className="modal-card">
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+      <h3 style={{margin:0}}>{isNew?'Add':'Edit'} Inventory Item</h3>
+      <button onClick={onClose}>×</button>
+    </div>
+    <div className="form">
+      <label><div className="muted">Name</div><input value={form.name} onChange={e=>set('name',e.target.value)}/></label>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <label><div className="muted">Category</div><Sel value={form.category} onChange={v=>set('category',v)} options={INV_CATEGORIES}/></label>
+        <label><div className="muted">Unit</div><Sel value={form.unit} onChange={v=>set('unit',v)} options={UNIT_OPTIONS}/></label>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+        <label><div className="muted">Current Stock</div><input type="number" step="0.01" value={form.current_stock} onChange={e=>set('current_stock',e.target.value)}/></label>
+        <label><div className="muted">Min Stock</div><input type="number" step="0.01" value={form.min_stock} onChange={e=>set('min_stock',e.target.value)}/></label>
+        <label><div className="muted">Max Stock</div><input type="number" step="0.01" value={form.max_stock} onChange={e=>set('max_stock',e.target.value)}/></label>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <label><div className="muted">Unit Cost ($)</div><input type="number" step="0.01" value={form.cost} onChange={e=>set('cost',e.target.value)}/></label>
+        <label><div className="muted">Forecast / Event</div><input type="number" step="0.1" value={form.forecast_per_event} onChange={e=>set('forecast_per_event',e.target.value)}/></label>
+      </div>
+      <label><div className="muted">Supplier</div><input value={form.supplier} onChange={e=>set('supplier',e.target.value)}/></label>
+      <button className="primary" onClick={()=>onSave(form)}>Save</button>
+    </div>
+  </div></div>;
+}
+
+// ── Ingredients Page ────────────────────────────────────────────────────────────
+function IngredientsPage({ingredients,inventory,api,refresh}){
+  const [editing,setEditing]=useState(null);
+  const invMap=Object.fromEntries(inventory.map(i=>[String(i.id),i]));
+
+  async function save(form){
+    const id=form.id;
+    await api(`/api/ingredients${id?`/${id}`:''}`,{method:id?'PUT':'POST',body:JSON.stringify(form)});
+    setEditing(null); await refresh();
+  }
+  async function del(id){
+    if(!confirm('Delete ingredient?')) return;
+    await api(`/api/ingredients/${id}`,{method:'DELETE'}); await refresh();
   }
 
   return <>
@@ -178,15 +272,34 @@ function IngredientsPage({ingredients, inventory, api, refresh}) {
       <button className="primary" onClick={()=>setEditing({})}>Add Ingredient</button>
     </div>
     <div className="grid cards">
-      {ingredients.map(ing => {
-        const spp = Number(ing.servings_per_purchase)||1;
-        const cps = (Number(ing.cost)||0) / spp;
+      {ingredients.map(ing=>{
+        const spp=Number(ing.servings_per_purchase)||1;
+        const cps=(Number(ing.cost)||0)/spp;
+        const inv=invMap[String(ing.inventory_item_id)];
         return <div className="card" key={ing.id}>
-          <h3>{ing.name}</h3>
-          <p className="muted">{ing.category} · {ing.unit}</p>
-          <p className="muted">Purchase cost: {money(ing.cost)} · Servings/purchase: {spp}</p>
-          <p className="muted" style={{color:'#86efac'}}>Cost per serving: {money(cps)}</p>
-          {ing.notes && <p className="muted" style={{fontSize:12}}>{ing.notes}</p>}
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+            <h3 style={{margin:0}}>{ing.name}</h3>
+            <span className="muted" style={{fontSize:12}}>{ing.category}</span>
+          </div>
+          <div className="profit-panel" style={{marginTop:10}}>
+            <div className="profit-row">
+              <span className="muted">Inventory Source</span>
+              <span>{inv ? `${inv.name} (${inv.unit})` : <span style={{color:'#fca5a5',fontSize:12}}>not linked</span>}</span>
+            </div>
+            <div className="profit-row">
+              <span className="muted">Purchase Cost</span>
+              <span>{money(ing.cost)} / {ing.unit}</span>
+            </div>
+            <div className="profit-row">
+              <span className="muted">Servings / Purchase</span>
+              <span>{spp}</span>
+            </div>
+            <div className="profit-row">
+              <span className="muted">Cost Per Serving</span>
+              <span style={{color:'#86efac',fontWeight:900}}>{money(cps)} / {ing.unit}</span>
+            </div>
+          </div>
+          {ing.notes&&<p className="muted" style={{fontSize:12,marginTop:6}}>{ing.notes}</p>}
           <div className="actions" style={{marginTop:10}}>
             <button onClick={()=>setEditing(ing)}>Edit</button>
             <button onClick={()=>del(ing.id)}>Delete</button>
@@ -194,23 +307,21 @@ function IngredientsPage({ingredients, inventory, api, refresh}) {
         </div>;
       })}
     </div>
-    {editing !== null && <IngredientModal ingredient={editing} inventory={inventory} onSave={save} onClose={()=>setEditing(null)}/>}
+    {editing!==null&&<IngredientModal ingredient={editing} inventory={inventory} onSave={save} onClose={()=>setEditing(null)}/>}
   </>;
 }
 
-function IngredientModal({ingredient, inventory, onSave, onClose}) {
-  const isNew = !ingredient.id;
-  const [form, setForm] = useState({
-    name: ingredient.name||'', category: ingredient.category||'',
-    unit: ingredient.unit||'each', cost: ingredient.cost||'',
-    servings_per_purchase: ingredient.servings_per_purchase||1,
-    supplier: ingredient.supplier||'', notes: ingredient.notes||'',
-    inventory_item_id: ingredient.inventory_item_id||'',
-    id: ingredient.id
+function IngredientModal({ingredient,inventory,onSave,onClose}){
+  const isNew=!ingredient.id;
+  const [form,setForm]=useState({
+    name:ingredient.name||'', category:ingredient.category||'',
+    unit:ingredient.unit||'each', cost:ingredient.cost||'',
+    servings_per_purchase:ingredient.servings_per_purchase||1,
+    supplier:ingredient.supplier||'', notes:ingredient.notes||'',
+    inventory_item_id:ingredient.inventory_item_id||'', id:ingredient.id
   });
-  function set(k,v){ setForm(f=>({...f,[k]:v})); }
-  const cps = form.cost && form.servings_per_purchase ? (Number(form.cost) / Number(form.servings_per_purchase)).toFixed(4) : '—';
-
+  function set(k,v){setForm(f=>({...f,[k]:v}));}
+  const cps=form.cost&&form.servings_per_purchase?(Number(form.cost)/Number(form.servings_per_purchase)).toFixed(4):'—';
   return <div className="modal"><div className="modal-card">
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
       <h3 style={{margin:0}}>{isNew?'Add':'Edit'} Ingredient</h3>
@@ -228,10 +339,10 @@ function IngredientModal({ingredient, inventory, onSave, onClose}) {
       </div>
       <div className="muted" style={{fontSize:12,padding:'6px 0'}}>Cost per serving: <strong style={{color:'#86efac'}}>${cps}</strong></div>
       <label><div className="muted">Supplier</div><input value={form.supplier} onChange={e=>set('supplier',e.target.value)}/></label>
-      <label><div className="muted">Link to Inventory Item (optional)</div>
+      <label><div className="muted">Link to Inventory Item</div>
         <select value={form.inventory_item_id||''} onChange={e=>set('inventory_item_id',e.target.value||null)} style={{background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:12,padding:'11px 13px',width:'100%'}}>
           <option value="">— none —</option>
-          {inventory.map(inv=><option key={inv.id} value={inv.id}>{inv.name}</option>)}
+          {inventory.map(inv=><option key={inv.id} value={inv.id}>{inv.name} ({inv.unit})</option>)}
         </select>
       </label>
       <label><div className="muted">Notes</div><textarea value={form.notes} onChange={e=>set('notes',e.target.value)}/></label>
@@ -240,42 +351,31 @@ function IngredientModal({ingredient, inventory, onSave, onClose}) {
   </div></div>;
 }
 
-// ── Recipes Page ───────────────────────────────────────────────────────────────
-function RecipesPage({recipes, ingredients, api, refresh}) {
-  const [editing, setEditing] = useState(null);
-  const [costs,   setCosts]   = useState({});
+// ── Recipes Page ────────────────────────────────────────────────────────────────
+function RecipesPage({recipes,ingredients,api,refresh}){
+  const [editing,setEditing]=useState(null);
+  const [costs,setCosts]=useState({});
 
-  useEffect(() => {
-    recipes.forEach(r => {
-      api(`/api/recipes/${r.id}/cost`).then(d => setCosts(c=>({...c,[r.id]:d}))).catch(()=>{});
-    });
-  }, [recipes]);
+  useEffect(()=>{
+    recipes.forEach(r=>{ api(`/api/recipes/${r.id}/cost`).then(d=>setCosts(c=>({...c,[r.id]:d}))).catch(()=>{}); });
+  },[recipes]);
 
-  async function save(form, riRows) {
-    const id = form.id;
-    // Upsert recipe
-    const saved = await api(`/api/recipes${id?`/${id}`:''}`, { method:id?'PUT':'POST', body:JSON.stringify(form) });
-    const recipeId = id || saved.id;
-
-    // Delete existing recipe_ingredients then re-insert
-    const existing = await api(`/api/recipe-ingredients?recipe_id=${recipeId}`).catch(()=>({rows:[]}));
-    // Use the list endpoint to find existing RIs
-    const allRI = await api('/api/recipe-ingredients');
-    const toDelete = allRI.filter ? allRI.filter(r=>r.recipe_id===recipeId) : [];
-    for (const ri of toDelete) {
-      await api(`/api/recipe-ingredients/${ri.id}`, {method:'DELETE'}).catch(()=>{});
-    }
-    for (const row of riRows) {
-      if (!row.ingredient_id || !row.quantity) continue;
-      await api('/api/recipe-ingredients', { method:'POST', body:JSON.stringify({ recipe_id:recipeId, ingredient_id:row.ingredient_id, quantity:row.quantity, unit:row.unit }) });
+  async function save(form,riRows){
+    const id=form.id;
+    const saved=await api(`/api/recipes${id?`/${id}`:''}`,{method:id?'PUT':'POST',body:JSON.stringify(form)});
+    const recipeId=id||saved.id;
+    const allRI=await api('/api/recipe-ingredients');
+    const toDelete=allRI.filter?allRI.filter(r=>r.recipe_id===recipeId):[];
+    for(const ri of toDelete) await api(`/api/recipe-ingredients/${ri.id}`,{method:'DELETE'}).catch(()=>{});
+    for(const row of riRows){
+      if(!row.ingredient_id||!row.quantity) continue;
+      await api('/api/recipe-ingredients',{method:'POST',body:JSON.stringify({recipe_id:recipeId,ingredient_id:row.ingredient_id,quantity:row.quantity,unit:row.unit})});
     }
     setEditing(null); await refresh();
   }
-
-  async function del(id) {
-    if (!confirm('Delete recipe? This will remove all ingredient assignments.')) return;
-    await api(`/api/recipes/${id}`, {method:'DELETE'});
-    await refresh();
+  async function del(id){
+    if(!confirm('Delete recipe? This removes all ingredient assignments.')) return;
+    await api(`/api/recipes/${id}`,{method:'DELETE'}); await refresh();
   }
 
   return <>
@@ -284,76 +384,60 @@ function RecipesPage({recipes, ingredients, api, refresh}) {
       <button className="primary" onClick={()=>setEditing({riRows:[]})}>Add Recipe</button>
     </div>
     <div className="grid cards">
-      {recipes.map(r => {
-        const c = costs[r.id];
+      {recipes.map(r=>{
+        const c=costs[r.id];
         return <div className="card" key={r.id}>
           <h3>{r.name}</h3>
           <p className="muted">{r.category} · Yield: {r.yield_amount} {r.yield_unit}</p>
-          {r.prep_time && <p className="muted">Prep: {r.prep_time}{r.cook_time?` · Cook: ${r.cook_time}`:''}</p>}
-          {c && <p className="muted" style={{color:'#86efac'}}>Recipe cost: {money(c.total_cost)} · Per serving: {money(c.cost_per_serving)}</p>}
-          {c && c.lines && c.lines.length > 0 && <div style={{marginTop:8}}>
+          {r.prep_time&&<p className="muted">Prep: {r.prep_time}{r.cook_time?` · Cook: ${r.cook_time}`:''}</p>}
+          {c&&<p className="muted" style={{color:'#86efac'}}>Recipe cost: {money(c.total_cost)} · Per serving: {money(c.cost_per_serving)}</p>}
+          {c&&c.lines&&c.lines.length>0&&<div style={{marginTop:8}}>
             {c.lines.map((l,i)=><div key={i} className="profit-row" style={{fontSize:12}}>
               <span>{l.ingredient}</span><span className="muted">×{l.quantity} {l.unit}</span><span>{money(l.line_cost)}</span>
             </div>)}
           </div>}
-          {r.notes && <p className="muted" style={{fontSize:12,marginTop:6}}>{r.notes}</p>}
+          {r.notes&&<p className="muted" style={{fontSize:12,marginTop:6}}>{r.notes}</p>}
           <div className="actions" style={{marginTop:10}}>
-            <button onClick={()=>setEditing({...r, riRows: c?.lines ? c.lines.map(l=>({...l,ingredient_id:null})) : []})}>Edit</button>
+            <button onClick={()=>setEditing({...r,riRows:c?.lines?c.lines.map(l=>({...l,ingredient_id:null})):[]})}>Edit</button>
             <button onClick={()=>del(r.id)}>Delete</button>
           </div>
         </div>;
       })}
     </div>
-    {editing !== null && <RecipeModal recipe={editing} ingredients={ingredients} api={api} onSave={save} onClose={()=>setEditing(null)}/>}
+    {editing!==null&&<RecipeModal recipe={editing} ingredients={ingredients} api={api} onSave={save} onClose={()=>setEditing(null)}/>}
   </>;
 }
 
-function RecipeModal({recipe, ingredients, api, onSave, onClose}) {
-  const isNew = !recipe.id;
-  const [form, setForm] = useState({
-    id: recipe.id, name: recipe.name||'', category: recipe.category||'Prep',
-    yield_amount: recipe.yield_amount||1, yield_unit: recipe.yield_unit||'serving',
-    prep_time: recipe.prep_time||'', cook_time: recipe.cook_time||'',
-    notes: recipe.notes||'', instructions: recipe.instructions||''
-  });
-  const [rows, setRows]     = useState([]);
-  const [loading, setLoading]= useState(!isNew);
-  const [totalCost, setTotal] = useState(0);
-
-  function set(k,v){ setForm(f=>({...f,[k]:v})); }
-
-  // Load existing recipe_ingredients when editing
-  useEffect(() => {
-    if (!recipe.id) { setLoading(false); return; }
-    api('/api/recipe-ingredients').then(all => {
-      const mine = all.filter(r=>r.recipe_id===recipe.id);
-      setRows(mine.map(r=>({id:r.id, ingredient_id:r.ingredient_id, quantity:r.quantity, unit:r.unit})));
+function RecipeModal({recipe,ingredients,api,onSave,onClose}){
+  const isNew=!recipe.id;
+  const [form,setForm]=useState({id:recipe.id,name:recipe.name||'',category:recipe.category||'Prep',yield_amount:recipe.yield_amount||1,yield_unit:recipe.yield_unit||'serving',prep_time:recipe.prep_time||'',cook_time:recipe.cook_time||'',notes:recipe.notes||'',instructions:recipe.instructions||''});
+  const [rows,setRows]=useState([]);
+  const [loading,setLoading]=useState(!isNew);
+  const [totalCost,setTotal]=useState(0);
+  function set(k,v){setForm(f=>({...f,[k]:v}));}
+  useEffect(()=>{
+    if(!recipe.id){setLoading(false);return;}
+    api('/api/recipe-ingredients').then(all=>{
+      const mine=all.filter(r=>r.recipe_id===recipe.id);
+      setRows(mine.map(r=>({id:r.id,ingredient_id:r.ingredient_id,quantity:r.quantity,unit:r.unit})));
       setLoading(false);
     }).catch(()=>setLoading(false));
-  }, []);
-
-  useEffect(() => {
-    let total = 0;
-    rows.forEach(row => {
-      const ing = ingredients.find(i=>i.id===Number(row.ingredient_id));
-      if (ing) {
-        const spp = Number(ing.servings_per_purchase)||1;
-        total += (Number(ing.cost)/spp) * (Number(row.quantity)||0);
-      }
+  },[]);
+  useEffect(()=>{
+    let t=0;
+    rows.forEach(row=>{
+      const ing=ingredients.find(i=>i.id===Number(row.ingredient_id));
+      if(ing){const spp=Number(ing.servings_per_purchase)||1; t+=(Number(ing.cost)/spp)*(Number(row.quantity)||0);}
     });
-    setTotal(total);
-  }, [rows, ingredients]);
-
-  function addRow(){ setRows(r=>[...r,{ingredient_id:'',quantity:1,unit:'each'}]); }
-  function updateRow(i,k,v){ setRows(r=>r.map((row,idx)=>idx===i?{...row,[k]:v}:row)); }
-  function removeRow(i){ setRows(r=>r.filter((_,idx)=>idx!==i)); }
-
-  if (loading) return <div className="modal"><div className="modal-card"><p className="muted">Loading…</p></div></div>;
-
+    setTotal(t);
+  },[rows,ingredients]);
+  function addRow(){setRows(r=>[...r,{ingredient_id:'',quantity:1,unit:'each'}]);}
+  function updateRow(i,k,v){setRows(r=>r.map((row,idx)=>idx===i?{...row,[k]:v}:row));}
+  function removeRow(i){setRows(r=>r.filter((_,idx)=>idx!==i));}
+  if(loading) return <div className="modal"><div className="modal-card"><p className="muted">Loading…</p></div></div>;
   return <div className="modal"><div className="modal-card" style={{width:'min(700px,100%)',maxHeight:'90vh',overflowY:'auto'}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
-      <h3 style={{margin:0}}>{isNew?'Add':'Edit'} Recipe</h3>
-      <button onClick={onClose}>×</button>
+      <h3 style={{margin:0}}>{isNew?'Add':'Edit'} Recipe</h3><button onClick={onClose}>×</button>
     </div>
     <div className="form">
       <label><div className="muted">Recipe Name</div><input value={form.name} onChange={e=>set('name',e.target.value)}/></label>
@@ -361,7 +445,7 @@ function RecipeModal({recipe, ingredients, api, onSave, onClose}) {
         <label><div className="muted">Category</div><Sel value={form.category} onChange={v=>set('category',v)} options={RECIPE_CATEGORIES}/></label>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
           <label><div className="muted">Yield Amount</div><input type="number" step="0.1" value={form.yield_amount} onChange={e=>set('yield_amount',e.target.value)}/></label>
-          <label><div className="muted">Yield Unit</div><input value={form.yield_unit} onChange={e=>set('yield_unit',e.target.value)} placeholder="serving, bowl…"/></label>
+          <label><div className="muted">Yield Unit</div><input value={form.yield_unit} onChange={e=>set('yield_unit',e.target.value)} placeholder="serving…"/></label>
         </div>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
@@ -369,17 +453,15 @@ function RecipeModal({recipe, ingredients, api, onSave, onClose}) {
         <label><div className="muted">Cook Time</div><input value={form.cook_time} onChange={e=>set('cook_time',e.target.value)} placeholder="2 hours"/></label>
       </div>
       <label><div className="muted">Notes</div><textarea value={form.notes} onChange={e=>set('notes',e.target.value)}/></label>
-      <label><div className="muted">Instructions</div><textarea rows={4} value={form.instructions} onChange={e=>set('instructions',e.target.value)} placeholder="Step-by-step cooking directions…"/></label>
-
+      <label><div className="muted">Instructions</div><textarea rows={4} value={form.instructions} onChange={e=>set('instructions',e.target.value)} placeholder="Step-by-step…"/></label>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8}}>
         <div style={{fontWeight:900}}>Ingredients</div>
         <button onClick={addRow} style={{padding:'6px 12px'}}>+ Add Row</button>
       </div>
-
-      {rows.map((row,i) => {
-        const ing = ingredients.find(ig=>ig.id===Number(row.ingredient_id));
-        const spp = ing ? (Number(ing.servings_per_purchase)||1) : 1;
-        const lineCost = ing ? ((Number(ing.cost)/spp)*(Number(row.quantity)||0)) : 0;
+      {rows.map((row,i)=>{
+        const ing=ingredients.find(ig=>ig.id===Number(row.ingredient_id));
+        const spp=ing?(Number(ing.servings_per_purchase)||1):1;
+        const lineCost=ing?((Number(ing.cost)/spp)*(Number(row.quantity)||0)):0;
         return <div key={i} style={{display:'grid',gridTemplateColumns:'2fr 80px 80px 60px 28px',gap:8,alignItems:'center',marginBottom:4}}>
           <select value={row.ingredient_id} onChange={e=>updateRow(i,'ingredient_id',e.target.value)} style={{background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:10,padding:'8px 10px'}}>
             <option value="">Select ingredient…</option>
@@ -391,85 +473,121 @@ function RecipeModal({recipe, ingredients, api, onSave, onClose}) {
           <button onClick={()=>removeRow(i)} style={{padding:'4px 8px',background:'rgba(239,68,68,.3)'}}>×</button>
         </div>;
       })}
-
-      <div style={{textAlign:'right',fontWeight:900,marginTop:4}}>Total cost: <span style={{color:'#86efac'}}>{money(totalCost)}</span></div>
-
-      <button className="primary" onClick={()=>onSave(form, rows)}>Save Recipe</button>
+      <div style={{textAlign:'right',fontWeight:900,marginTop:4}}>Total: <span style={{color:'#86efac'}}>{money(totalCost)}</span></div>
+      <button className="primary" onClick={()=>onSave(form,rows)}>Save Recipe</button>
     </div>
   </div></div>;
 }
 
 // ── Menu Page ──────────────────────────────────────────────────────────────────
-function MenuPage({menuItems, recipes, api, refresh}) {
-  const [costs,   setCosts]   = useState({});
-  const [editing, setEditing] = useState(null);
+function MenuPage({menuItems,recipes,api,refresh}){
+  const [costs,setCosts]=useState({});
+  const [lines,setLines]=useState({});
+  const [editing,setEditing]=useState(null);
 
-  const loadCosts = useCallback(() => {
-    api('/api/menu/costs').then(all => {
-      const map = {};
-      all.forEach(c => { map[c.menu_item_id] = c; });
-      setCosts(map);
+  useEffect(()=>{
+    api('/api/menu/costs').then(all=>{
+      const cm={};
+      all.forEach(c=>{cm[c.menu_item_id]=c;});
+      setCosts(cm);
+      // Load ingredient lines for each item that has a recipe
+      all.forEach(c=>{
+        if(c.recipe_id){
+          api(`/api/recipes/${c.recipe_id}/cost`).then(d=>setLines(l=>({...l,[c.menu_item_id]:d.lines||[]}))).catch(()=>{});
+        }
+      });
     }).catch(()=>{});
-  }, []);
+  },[menuItems]);
 
-  useEffect(() => { loadCosts(); }, [menuItems]);
-
-  async function save(form) {
-    const id = form.id;
-    await api(`/api/menu${id?`/${id}`:''}`, { method:id?'PUT':'POST', body:JSON.stringify(form) });
+  async function save(form){
+    const id=form.id;
+    await api(`/api/menu${id?`/${id}`:''}`,{method:id?'PUT':'POST',body:JSON.stringify(form)});
     setEditing(null); await refresh();
   }
-  async function duplicate(item) {
-    const {id, created_at, ...rest} = item;
-    await api('/api/menu', { method:'POST', body:JSON.stringify({...rest, name:`${item.name} (copy)`}) });
+  async function duplicate(item){
+    const {id,created_at,...rest}=item;
+    await api('/api/menu',{method:'POST',body:JSON.stringify({...rest,name:`${item.name} (copy)`})});
     await refresh();
   }
-  async function del(id) {
-    if (!confirm('Delete menu item?')) return;
-    await api(`/api/menu/${id}`, {method:'DELETE'});
-    await refresh();
+  async function del(id){
+    if(!confirm('Delete menu item?')) return;
+    await api(`/api/menu/${id}`,{method:'DELETE'}); await refresh();
   }
 
-  // Group by category
-  const grouped = {};
-  menuItems.forEach(item => {
-    const cat = item.category || 'Uncategorized';
-    if (!grouped[cat]) grouped[cat] = [];
-    grouped[cat].push(item);
-  });
+  const grouped={};
+  menuItems.forEach(item=>{ const c=item.category||'Uncategorized'; if(!grouped[c]) grouped[c]=[]; grouped[c].push(item); });
 
   return <>
     <div className="card" style={{marginBottom:18,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
       <div><h3>Menu</h3><p className="muted">{menuItems.length} items</p></div>
       <button className="primary" onClick={()=>setEditing({})}>Add Item</button>
     </div>
-
-    {Object.keys(grouped).sort().map(cat => <div key={cat} style={{marginBottom:24}}>
+    {Object.keys(grouped).sort().map(cat=><div key={cat} style={{marginBottom:24}}>
       <div style={{color:'#fb923c',fontWeight:900,fontSize:13,textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:10,borderBottom:'1px solid rgba(249,115,22,.3)',paddingBottom:6}}>{cat}</div>
       <div className="grid cards">
-        {grouped[cat].map(item => {
-          const c = costs[item.id];
-          const rcost  = c ? c.recipe_cost : Number(item.cost);
-          const mgn    = c ? c.gross_margin_percent : (item.price>0 ? ((item.price-item.cost)/item.price)*100 : 0);
-          const src    = c ? c.cost_source : 'manual';
-          const profit = Number(item.price) - rcost;
+        {grouped[cat].map(item=>{
+          const c=costs[item.id];
+          const itemLines=lines[item.id]||[];
+          const rcost=c?c.recipe_cost:Number(item.cost);
+          const mgn=c?c.gross_margin_percent:(item.price>0?((item.price-item.cost)/item.price)*100:0);
+          const profit=Number(item.price)-rcost;
+          const src=c?c.cost_source:'manual';
+          const s65=rcost>0?Number((rcost/(1-0.65)).toFixed(2)):null;
+          const s70=rcost>0?Number((rcost/(1-0.70)).toFixed(2)):null;
+          const s75=rcost>0?Number((rcost/(1-0.75)).toFixed(2)):null;
           return <div className="card" key={item.id}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
               <div>
                 <h3 style={{margin:'0 0 2px'}}>{item.name}</h3>
-                <p className="muted" style={{margin:0}}>{item.active ? '' : <span className="badge" style={{background:'rgba(239,68,68,.2)',color:'#fca5a5',fontSize:10}}>INACTIVE</span>}</p>
+                {!item.active&&<span className="badge" style={{background:'rgba(239,68,68,.2)',color:'#fca5a5',fontSize:10}}>INACTIVE</span>}
               </div>
               <div style={{textAlign:'right'}}>
                 <div style={{fontSize:22,fontWeight:900}}>{money(item.price)}</div>
                 <div style={{fontSize:11,color:marginColor(mgn),fontWeight:700}}>{marginLabel(mgn)} · {pct(mgn)}</div>
               </div>
             </div>
-            {item.description && <p className="muted" style={{fontSize:12,margin:'6px 0 0'}}>{item.description}</p>}
+            {item.description&&<p className="muted" style={{fontSize:12,margin:'6px 0 0'}}>{item.description}</p>}
+
             <div className="profit-panel" style={{marginTop:10}}>
-              <div className="profit-row"><span className="muted">Recipe Cost</span><span style={{color:'#fca5a5'}}>{money(rcost)} <span style={{fontSize:10,opacity:.6}}>({src})</span></span></div>
-              <div className="profit-row"><span className="muted">Profit / Plate</span><span style={{color:'#86efac'}}>{money(profit)}</span></div>
-              {c?.recipe_name && <div className="profit-row"><span className="muted">Recipe</span><span>{c.recipe_name}</span></div>}
+              {/* Recipe name */}
+              {c?.recipe_name&&<div className="profit-row"><span className="muted">Recipe</span><span>{c.recipe_name}</span></div>}
+
+              {/* Costs */}
+              <div className="profit-row"><span className="muted">Food Cost <span style={{fontSize:10,opacity:.6}}>({src})</span></span><span style={{color:'#fca5a5',fontWeight:900}}>{money(rcost)}</span></div>
+              <div className="profit-row"><span className="muted">Actual Price</span><span style={{fontWeight:900}}>{money(item.price)}</span></div>
+              <div className="profit-row"><span className="muted">Profit / Plate</span><span style={{color:'#86efac',fontWeight:900}}>{money(profit)}</span></div>
+              <div className="profit-row"><span className="muted">Margin</span><span style={{color:marginColor(mgn),fontWeight:900}}>{pct(mgn)}</span></div>
+
+              {/* Suggested prices */}
+              {s65&&<>
+                <div className="muted" style={{fontSize:11,marginTop:8,marginBottom:4,textTransform:'uppercase',letterSpacing:'0.08em'}}>Suggested Price</div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6}}>
+                  <div className="sug-price" style={{borderColor: Number(item.price)>=s65?'#86efac':'rgba(255,255,255,.1)'}}>
+                    <div className="muted" style={{fontSize:10}}>65%</div>
+                    <div style={{fontWeight:900,fontSize:14}}>{money(s65)}</div>
+                  </div>
+                  <div className="sug-price" style={{borderColor: Number(item.price)>=s70?'#86efac':'rgba(255,255,255,.1)'}}>
+                    <div className="muted" style={{fontSize:10}}>70%</div>
+                    <div style={{fontWeight:900,fontSize:14}}>{money(s70)}</div>
+                  </div>
+                  <div className="sug-price" style={{borderColor: Number(item.price)>=s75?'#86efac':'rgba(255,255,255,.1)'}}>
+                    <div className="muted" style={{fontSize:10}}>75%</div>
+                    <div style={{fontWeight:900,fontSize:14}}>{money(s75)}</div>
+                  </div>
+                </div>
+              </>}
+
+              {/* Ingredient breakdown */}
+              {itemLines.length>0&&<>
+                <div className="muted" style={{fontSize:11,marginTop:8,marginBottom:4,textTransform:'uppercase',letterSpacing:'0.08em'}}>Ingredient Breakdown</div>
+                {itemLines.map((l,i)=><div key={i} className="profit-row" style={{fontSize:12}}>
+                  <span>{l.ingredient}</span>
+                  <span className="muted">×{l.quantity} {l.unit}</span>
+                  <span style={{color:'#fca5a5'}}>{money(l.line_cost)}</span>
+                </div>)}
+              </>}
             </div>
+
             <div className="actions" style={{marginTop:10,flexWrap:'wrap'}}>
               <button onClick={()=>setEditing(item)}>Edit</button>
               <button onClick={()=>duplicate(item)}>Duplicate</button>
@@ -479,25 +597,17 @@ function MenuPage({menuItems, recipes, api, refresh}) {
         })}
       </div>
     </div>)}
-
-    {editing !== null && <MenuItemModal item={editing} recipes={recipes} onSave={save} onClose={()=>setEditing(null)}/>}
+    {editing!==null&&<MenuItemModal item={editing} recipes={recipes} onSave={save} onClose={()=>setEditing(null)}/>}
   </>;
 }
 
-function MenuItemModal({item, recipes, onSave, onClose}) {
-  const isNew = !item.id;
-  const [form, setForm] = useState({
-    id: item.id, name: item.name||'', category: item.category||'Entree',
-    price: item.price||'', description: item.description||'',
-    prep_notes: item.prep_notes||'', active: item.active!==false,
-    recipe_id: item.recipe_id||'', portions: item.portions||1
-  });
-  function set(k,v){ setForm(f=>({...f,[k]:v})); }
-
+function MenuItemModal({item,recipes,onSave,onClose}){
+  const isNew=!item.id;
+  const [form,setForm]=useState({id:item.id,name:item.name||'',category:item.category||'Entree',price:item.price||'',description:item.description||'',prep_notes:item.prep_notes||'',active:item.active!==false,recipe_id:item.recipe_id||'',portions:item.portions||1});
+  function set(k,v){setForm(f=>({...f,[k]:v}));}
   return <div className="modal"><div className="modal-card">
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
-      <h3 style={{margin:0}}>{isNew?'Add':'Edit'} Menu Item</h3>
-      <button onClick={onClose}>×</button>
+      <h3 style={{margin:0}}>{isNew?'Add':'Edit'} Menu Item</h3><button onClick={onClose}>×</button>
     </div>
     <div className="form">
       <label><div className="muted">Name</div><input value={form.name} onChange={e=>set('name',e.target.value)}/></label>
@@ -512,7 +622,7 @@ function MenuItemModal({item, recipes, onSave, onClose}) {
           <span className="muted">Active on menu</span>
         </label>
       </div>
-      <label><div className="muted">Assign Recipe (for cost calculation)</div>
+      <label><div className="muted">Assign Recipe (cost calculation)</div>
         <select value={form.recipe_id||''} onChange={e=>set('recipe_id',e.target.value||null)} style={{background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:12,padding:'11px 13px',width:'100%'}}>
           <option value="">— manual cost only —</option>
           {recipes.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
@@ -526,7 +636,7 @@ function MenuItemModal({item, recipes, onSave, onClose}) {
 }
 
 // ── Events Page ────────────────────────────────────────────────────────────────
-function EventsPage({events, menuItems, api, refresh, setModal, remove}) {
+function EventsPage({events,menuItems,api,refresh,setModal,remove}){
   return <>
     <div className="card" style={{marginBottom:18,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
       <div><h3>Events</h3><p className="muted">{events.length} records</p></div>
@@ -538,25 +648,23 @@ function EventsPage({events, menuItems, api, refresh, setModal, remove}) {
   </>;
 }
 
-function EventCard({event, menuItems, api, refresh, setModal, remove}) {
-  const [profitOpen,   setProfitOpen]   = useState(false);
-  const [profit,       setProfit]       = useState(null);
-  const [profitLoading,setProfitLoading]= useState(false);
-  const [saleOpen,     setSaleOpen]     = useState(false);
-
-  async function loadProfit() {
-    if (profitOpen) { setProfitOpen(false); return; }
+function EventCard({event,menuItems,api,refresh,setModal,remove}){
+  const [profitOpen,setProfitOpen]=useState(false);
+  const [profit,setProfit]=useState(null);
+  const [profitLoading,setProfitLoading]=useState(false);
+  const [saleOpen,setSaleOpen]=useState(false);
+  async function loadProfit(){
+    if(profitOpen){setProfitOpen(false);return;}
     setProfitLoading(true);
-    try { setProfit(await api(`/api/events/${event.id}/profit`)); setProfitOpen(true); }
-    catch(e) { alert('Failed to load profit: '+e.message); }
-    finally { setProfitLoading(false); }
+    try{setProfit(await api(`/api/events/${event.id}/profit`));setProfitOpen(true);}
+    catch(e){alert('Failed to load profit: '+e.message);}
+    finally{setProfitLoading(false);}
   }
-  async function afterSale() {
-    if (profitOpen) setProfit(await api(`/api/events/${event.id}/profit`));
+  async function afterSale(){
+    if(profitOpen) setProfit(await api(`/api/events/${event.id}/profit`));
     await refresh();
   }
-
-  const statusColor = {Confirmed:'green',Completed:'',Interested:'yellow',Applied:'yellow',Rejected:'red'}[event.status]||'yellow';
+  const statusColor={Confirmed:'green',Completed:'',Interested:'yellow',Applied:'yellow',Rejected:'red'}[event.status]||'yellow';
   return <div className="card event-card">
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
       <div>
@@ -566,36 +674,36 @@ function EventCard({event, menuItems, api, refresh, setModal, remove}) {
       </div>
       <Badge color={statusColor}>{event.status}</Badge>
     </div>
-    {event.notes && <p className="muted" style={{margin:'10px 0 0',fontSize:12}}>{event.notes}</p>}
+    {event.notes&&<p className="muted" style={{margin:'10px 0 0',fontSize:12}}>{event.notes}</p>}
     <div className="actions" style={{marginTop:14,flexWrap:'wrap'}}>
       <button onClick={loadProfit} disabled={profitLoading}>{profitLoading?'Loading…':profitOpen?'Hide Profit':'View Profit'}</button>
       <button className="primary" onClick={()=>setSaleOpen(true)}>Add Sale</button>
       <button onClick={()=>setModal({collection:'events',item:event})}>Edit</button>
       <button onClick={()=>remove('events',event.id)}>Delete</button>
     </div>
-    {profitOpen && profit && <ProfitPanel profit={profit}/>}
-    {saleOpen && <SaleModal event={event} menuItems={menuItems} api={api} onClose={()=>setSaleOpen(false)} onSaved={afterSale}/>}
+    {profitOpen&&profit&&<ProfitPanel profit={profit}/>}
+    {saleOpen&&<SaleModal event={event} menuItems={menuItems} api={api} onClose={()=>setSaleOpen(false)} onSaved={afterSale}/>}
   </div>;
 }
 
-function ProfitPanel({profit}) {
-  const p = profit;
+function ProfitPanel({profit}){
+  const p=profit;
   return <div className="profit-panel">
     <div className="profit-grid">
-      <ProfitStat label="Gross Sales"    value={money(p.gross_sales)}/>
-      <ProfitStat label="Units Sold"     value={p.units_sold}/>
-      <ProfitStat label="Food Cost"      value={money(p.food_cost)} note={p.food_cost_source}/>
+      <ProfitStat label="Gross Sales" value={money(p.gross_sales)}/>
+      <ProfitStat label="Units Sold" value={p.units_sold}/>
+      <ProfitStat label="Food Cost" value={money(p.food_cost)} note={p.food_cost_source}/>
       <ProfitStat label="Event Expenses" value={money(p.event_expenses)}/>
-      <ProfitStat label="Gross Profit"   value={money(p.gross_profit)}  color={p.gross_profit>=0?'green':'red'}/>
-      <ProfitStat label="Net Profit"     value={money(p.net_profit)}    color={p.net_profit>=0?'green':'red'}/>
-      <ProfitStat label="Gross Margin"   value={pct(p.gross_margin_percent)}/>
-      <ProfitStat label="vs Expected"    value={money(p.vs_expected)}   color={p.vs_expected>=0?'green':'red'}/>
+      <ProfitStat label="Gross Profit" value={money(p.gross_profit)} color={p.gross_profit>=0?'green':'red'}/>
+      <ProfitStat label="Net Profit" value={money(p.net_profit)} color={p.net_profit>=0?'green':'red'}/>
+      <ProfitStat label="Gross Margin" value={pct(p.gross_margin_percent)}/>
+      <ProfitStat label="vs Expected" value={money(p.vs_expected)} color={p.vs_expected>=0?'green':'red'}/>
     </div>
-    {p.sales_breakdown.length>0 && <>
+    {p.sales_breakdown.length>0&&<>
       <div className="muted" style={{fontSize:11,marginTop:12,marginBottom:6,textTransform:'uppercase',letterSpacing:'0.1em'}}>Sales breakdown</div>
       {p.sales_breakdown.map((row,i)=><div key={i} className="profit-row"><span>{row.item}</span><span className="muted">×{row.qty}</span><span>{money(row.revenue)}</span></div>)}
     </>}
-    {p.expense_items?.length>0 && <>
+    {p.expense_items?.length>0&&<>
       <div className="muted" style={{fontSize:11,marginTop:10,marginBottom:6,textTransform:'uppercase',letterSpacing:'0.1em'}}>Expenses</div>
       {p.expense_items.map((ex,i)=><div key={i} className="profit-row"><span>{ex.title}</span><span className="muted">{ex.category}</span><span style={{color:'#fca5a5'}}>{money(ex.amount)}</span></div>)}
     </>}
@@ -608,28 +716,25 @@ function ProfitStat({label,value,note,color}){
   </div>;
 }
 
-function SaleModal({event, menuItems, api, onClose, onSaved}) {
+function SaleModal({event,menuItems,api,onClose,onSaved}){
   const [menuItemId,setMenuItemId]=useState(menuItems[0]?.id||'');
-  const [quantity,  setQuantity]  =useState(1);
-  const [note,      setNote]      =useState('');
-  const [saving,    setSaving]    =useState(false);
-  const [result,    setResult]    =useState(null);
-  const [error,     setError]     =useState('');
-
+  const [quantity,setQuantity]=useState(1);
+  const [note,setNote]=useState('');
+  const [saving,setSaving]=useState(false);
+  const [result,setResult]=useState(null);
+  const [error,setError]=useState('');
   async function submit(e){
     e.preventDefault();
-    if (!menuItemId||quantity<1){setError('Select an item and enter a valid quantity.');return;}
+    if(!menuItemId||quantity<1){setError('Select an item and enter a valid quantity.');return;}
     setSaving(true); setError(''); setResult(null);
-    try {
-      const data=await api('/api/sales-orders',{method:'POST',body:JSON.stringify({event_id:event.id,menu_item_id:Number(menuItemId),quantity:Number(quantity),note:note||null})});
-      setResult(data); await onSaved();
-    } catch(e){setError(e.message);}
+    try{const data=await api('/api/sales-orders',{method:'POST',body:JSON.stringify({event_id:event.id,menu_item_id:Number(menuItemId),quantity:Number(quantity),note:note||null})});setResult(data);await onSaved();}
+    catch(e){setError(e.message);}
     finally{setSaving(false);}
   }
   const sel=menuItems.find(m=>m.id===Number(menuItemId));
   return <div className="modal"><div className="modal-card" style={{width:'min(520px,100%)'}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}><h3 style={{margin:0}}>Add Sale — {event.name}</h3><button onClick={onClose}>×</button></div>
-    {!result && <form className="form" onSubmit={submit}>
+    {!result&&<form className="form" onSubmit={submit}>
       <label><div className="muted">Menu Item</div>
         <select value={menuItemId} onChange={e=>setMenuItemId(e.target.value)} style={{background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:12,padding:'11px 13px',width:'100%'}}>
           {menuItems.map(m=><option key={m.id} value={m.id}>{m.name} — {money(m.price)}</option>)}
@@ -637,14 +742,13 @@ function SaleModal({event, menuItems, api, onClose, onSaved}) {
       </label>
       <label><div className="muted">Quantity</div><input type="number" min="1" value={quantity} onChange={e=>setQuantity(e.target.value)}/></label>
       <label><div className="muted">Note (optional)</div><input value={note} onChange={e=>setNote(e.target.value)} placeholder="comp, event special…"/></label>
-      {sel && <div className="muted" style={{fontSize:12}}>Est. revenue: {money(Number(sel.price)*Number(quantity||0))} · Est. cost: {money(Number(sel.cost)*Number(quantity||0))}</div>}
-      {error && <div className="badge red">{error}</div>}
+      {sel&&<div className="muted" style={{fontSize:12}}>Est. revenue: {money(Number(sel.price)*Number(quantity||0))} · Est. cost: {money(Number(sel.cost)*Number(quantity||0))}</div>}
+      {error&&<div className="badge red">{error}</div>}
       <div style={{display:'flex',gap:10}}><button className="primary" type="submit" disabled={saving}>{saving?'Saving…':'Record Sale'}</button><button type="button" onClick={onClose}>Cancel</button></div>
     </form>}
-    {result && <SaleResult result={result} onClose={onClose} onAnother={()=>setResult(null)}/>}
+    {result&&<SaleResult result={result} onClose={onClose} onAnother={()=>setResult(null)}/>}
   </div></div>;
 }
-
 function SaleResult({result,onClose,onAnother}){
   const {order,consumption}=result;
   const deductions=consumption?.deductions||[];
@@ -664,16 +768,14 @@ function SaleResult({result,onClose,onAnother}){
   </div>;
 }
 
-// ── Generic Collection ────────────────────────────────────────────────────────
+// ── Generic Collection ─────────────────────────────────────────────────────────
 function labelFor(page,item){return item.name||item.title||item.client||item.id;}
 function descFor(page,item){
-  if(page==='inventory') return `${item.current_stock} ${item.unit} · min ${item.min_stock} · ${item.supplier||''}`;
-  if(page==='catering')  return `${item.status} · ${String(item.date||'').slice(0,10)} · $${Number(item.value||0).toLocaleString()} · ${item.location||''}`;
-  if(page==='staff')     return `${item.role} · ${item.status} · ${item.hours||0} hours`;
+  if(page==='catering') return `${item.status} · ${String(item.date||'').slice(0,10)} · $${Number(item.value||0).toLocaleString()} · ${item.location||''}`;
+  if(page==='staff')    return `${item.role} · ${item.status} · ${item.hours||0} hours`;
   if(page==='equipment') return `${item.status} · ${item.location||''}`;
   return item.category||item.status||item.notes||'';
 }
-
 function Collection({page,data,setModal,remove}){
   return <>
     <div className="card" style={{marginBottom:18,display:'flex',justifyContent:'space-between',gap:12,alignItems:'center'}}>
@@ -683,7 +785,6 @@ function Collection({page,data,setModal,remove}){
     <div className="grid cards">{data.map(item=><div className="card" key={item.id}><h3>{labelFor(page,item)}</h3><p className="muted">{descFor(page,item)}</p><p className="muted">{item.description||item.notes||item.content||''}</p><div className="actions"><button onClick={()=>setModal({collection:page,item})}>Edit</button><button onClick={()=>remove(page,item.id)}>Delete</button></div></div>)}</div>
   </>;
 }
-
 function EditModal({modal,save,close}){
   const [form,setForm]=useState(modal.item||{});
   const flds=fields[modal.collection]||[];
@@ -694,22 +795,30 @@ function EditModal({modal,save,close}){
   </div></div>;
 }
 
-// ── Today Dashboard ────────────────────────────────────────────────────────────
+// ── Today ──────────────────────────────────────────────────────────────────────
 function Today({overview}){
   const m=overview.metrics;
   return <>
     <div className="grid metrics">
-      <Metric label="Inventory Alerts"  value={m.inventory_alerts}           note="At or below minimum"/>
+      <Metric label="Inventory Alerts" value={m.inventory_alerts} note="At or below minimum"/>
       <Metric label="Catering Pipeline" value={'$'+Number(m.catering_pipeline||0).toLocaleString(undefined,{maximumFractionDigits:0})} note="Open value"/>
-      <Metric label="Open Tasks"        value={m.open_tasks}                 note="Needs action"/>
-      <Metric label="Active Staff"      value={m.active_staff}               note="On/active"/>
-      <Metric label="Avg Menu Margin"   value={pct(m.avg_menu_margin)}       note="Food cost health"/>
+      <Metric label="Open Tasks" value={m.open_tasks} note="Needs action"/>
+      <Metric label="Active Staff" value={m.active_staff} note="On/active"/>
+      <Metric label="Avg Menu Margin" value={pct(m.avg_menu_margin)} note="Food cost health"/>
     </div>
     <div className="grid two" style={{marginTop:20}}>
       <div className="card"><h3>Operational Timeline</h3><div className="list">{overview.timeline.map((x,i)=><div className="row" key={i}><div><strong>{x.title}</strong><span>{x.kind} · {x.type} · {String(x.time||'Today').slice(0,10)}</span></div><Badge color={x.priority==='High'?'red':'orange'}>{x.status}</Badge></div>)}</div></div>
       <div className="card"><h3>AI Recommendations</h3><div className="list">{overview.insights.length?overview.insights.map((x,i)=><div className="row" key={i}><div><strong>{x.title}</strong><span>{x.detail}<br/>{x.action}</span></div><Badge color={x.level==='Critical'?'red':x.level==='Warning'?'yellow':'green'}>{x.level}</Badge></div>):<p className="muted">No major risks.</p>}</div></div>
     </div>
   </>;
+}
+
+function AiPage({aiPrompt,setAiPrompt,aiAnswer,setAiAnswer,api}){
+  async function ask(){setAiAnswer('Thinking…');const r=await api('/api/ai/ask',{method:'POST',body:JSON.stringify({prompt:aiPrompt})});setAiAnswer(r.text);}
+  return <div className="grid two">
+    <div className="card"><h3>AI Copilot</h3><p className="muted">Rules-based until AI_ENABLED=true.</p><div className="form"><textarea value={aiPrompt} onChange={e=>setAiPrompt(e.target.value)}/><button className="primary" onClick={ask}>Ask AI</button></div></div>
+    <div className="card"><h3>Answer</h3><pre style={{whiteSpace:'pre-wrap'}}>{aiAnswer||'Ask a question about operations.'}</pre></div>
+  </div>;
 }
 
 createRoot(document.getElementById('root')).render(<App/>);

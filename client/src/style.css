@@ -4,3 +4,6 @@
 .profit-stat{background:rgba(255,255,255,.04);border-radius:12px;padding:10px 12px}
 .profit-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:6px 10px;border-radius:10px;background:rgba(255,255,255,.035);font-size:13px}
 select option{background:#141417;color:white}
+.inv-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.inv-stat{background:rgba(255,255,255,.04);border-radius:10px;padding:8px 10px;font-size:13px}
+.sug-price{background:rgba(255,255,255,.04);border:1px solid;border-radius:10px;padding:8px 10px;text-align:center}
