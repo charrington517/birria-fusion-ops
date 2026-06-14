@@ -38,6 +38,30 @@ router.get('/compound-ingredients/:id/cost', async (req, res, next) => {
   }
 });
 
+// compound-ingredient-components with optional parent_id filter
+router.get('/compound-ingredient-components', async (req, res, next) => {
+  try {
+    const { parent_id } = req.query;
+    const result = parent_id
+      ? await query(
+          `SELECT c.*, i.name AS ingredient_name, nc.name AS nested_compound_name
+           FROM compound_ingredient_components c
+           LEFT JOIN ingredients i ON i.id = c.ingredient_id
+           LEFT JOIN compound_ingredients nc ON nc.id = c.nested_compound_id
+           WHERE c.parent_id = $1 ORDER BY c.id`,
+          [parent_id]
+        )
+      : await query(
+          `SELECT c.*, i.name AS ingredient_name, nc.name AS nested_compound_name
+           FROM compound_ingredient_components c
+           LEFT JOIN ingredients i ON i.id = c.ingredient_id
+           LEFT JOIN compound_ingredients nc ON nc.id = c.nested_compound_id
+           ORDER BY c.id`
+        );
+    res.json(result.rows);
+  } catch (err) { next(err); }
+});
+
 Object.keys(crud.tableMap).forEach(collection => {
   router.get(`/${collection}`, async (req, res, next) => {
     try { res.json(await crud.list(collection)); } catch (err) { next(err); }
