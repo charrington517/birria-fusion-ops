@@ -57,18 +57,54 @@ async function calculateMenuItemCost(menuItemId) {
   if (!item) throw new Error('Menu item not found');
 
   const menu_price = Number(item.price);
-  let recipe_id = null, recipe_name = null, recipe_cost = null;
+
+  // ── Regular ingredient cost (via recipe) ──
+  let recipe_id = null, recipe_name = null, ingredient_cost = 0;
+  let ingredient_lines = [];
 
   if (item.recipe_id) {
     const r = await calculateRecipeCost(item.recipe_id);
     recipe_id = r.recipe_id;
     recipe_name = r.recipe_name;
-    recipe_cost = r.cost_per_serving;
+    ingredient_cost = r.cost_per_serving;
+    ingredient_lines = r.lines || [];
   } else {
-    recipe_cost = Number(item.cost);
+    ingredient_cost = Number(item.cost);
   }
 
-  const gross_profit = Number((menu_price - recipe_cost).toFixed(2));
+  // ── Compound ingredient cost ──
+  const ciRows = await query(
+    `SELECT mici.id, mici.compound_ingredient_id, mici.quantity, mici.unit,
+            ci.name AS compound_name
+     FROM menu_item_compound_ingredients mici
+     JOIN compound_ingredients ci ON ci.id = mici.compound_ingredient_id
+     WHERE mici.menu_item_id = $1
+     ORDER BY mici.id`,
+    [menuItemId]
+  );
+
+  let compound_cost = 0;
+  const compound_lines = [];
+  for (const row of ciRows.rows) {
+    const cc = await calculateCompoundCost(row.compound_ingredient_id);
+    const line_cost = cc.cost_per_yield_unit * Number(row.quantity);
+    compound_cost += line_cost;
+    compound_lines.push({
+      compound_id: row.compound_ingredient_id,
+      compound_name: cc.name,
+      quantity: Number(row.quantity),
+      unit: row.unit,
+      cost_per_yield_unit: Number(cc.cost_per_yield_unit.toFixed(4)),
+      line_cost: Number(line_cost.toFixed(4))
+    });
+  }
+
+  const total_cost = ingredient_cost + compound_cost;
+  const cost_source = ciRows.rows.length > 0
+    ? (item.recipe_id ? 'recipe+compound' : 'compound')
+    : (item.recipe_id ? 'recipe' : 'manual');
+
+  const gross_profit = Number((menu_price - total_cost).toFixed(2));
   const gross_margin_percent = menu_price > 0
     ? Number(((gross_profit / menu_price) * 100).toFixed(1))
     : 0;
@@ -79,11 +115,15 @@ async function calculateMenuItemCost(menuItemId) {
     recipe_id,
     recipe_name,
     menu_price,
-    recipe_cost: Number(recipe_cost.toFixed(2)),
+    ingredient_cost: Number(ingredient_cost.toFixed(2)),
+    compound_cost: Number(compound_cost.toFixed(2)),
+    recipe_cost: Number(total_cost.toFixed(2)),
     gross_profit,
     gross_margin_percent,
     margin_category: marginCategory(gross_margin_percent),
-    cost_source: item.recipe_id ? 'recipe' : 'manual'
+    cost_source,
+    ingredient_lines,
+    compound_lines
   };
 }
 

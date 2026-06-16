@@ -302,6 +302,20 @@ async function init() {
     CREATE INDEX IF NOT EXISTS idx_cic_nested_compound_id
       ON compound_ingredient_components(nested_compound_id)
       WHERE nested_compound_id IS NOT NULL;
+
+    -- menu_item_compound_ingredients: compound ingredients used by a menu item
+    CREATE TABLE IF NOT EXISTS menu_item_compound_ingredients (
+      id                     SERIAL PRIMARY KEY,
+      menu_item_id           INTEGER NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
+      compound_ingredient_id INTEGER NOT NULL REFERENCES compound_ingredients(id),
+      quantity               NUMERIC NOT NULL DEFAULT 0,
+      unit                   TEXT NOT NULL,
+      created_at             TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_mici_menu_item_id
+      ON menu_item_compound_ingredients(menu_item_id);
+    CREATE INDEX IF NOT EXISTS idx_mici_compound_ingredient_id
+      ON menu_item_compound_ingredients(compound_ingredient_id);
     -- inventory_transactions: refs inventory + sales_orders (both exist above)
     CREATE TABLE IF NOT EXISTS inventory_transactions (
       id             SERIAL PRIMARY KEY,

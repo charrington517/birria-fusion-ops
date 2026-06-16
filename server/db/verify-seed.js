@@ -18,6 +18,7 @@ const EXPECTED = {
   expenses:            3,
   compound_ingredients:             2,
   compound_ingredient_components:   6,
+  menu_item_compound_ingredients:   0,
 };
 
 // Expected FK linkages verified by name

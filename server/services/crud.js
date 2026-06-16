@@ -15,6 +15,7 @@ const tableMap = {
   'recipe-ingredients': 'recipe_ingredients',
   'compound-ingredients': 'compound_ingredients',
   'compound-ingredient-components': 'compound_ingredient_components',
+  'menu-item-compound-ingredients': 'menu_item_compound_ingredients',
   'inventory-transactions': 'inventory_transactions',
   tasks: 'tasks',
   playbook: 'playbook',
@@ -36,6 +37,7 @@ const writableFields = {
   'recipe-ingredients': ['recipe_id','ingredient_id','quantity','unit'],
   'compound-ingredients': ['name','category','yield_amount','yield_unit','notes','active'],
   'compound-ingredient-components': ['parent_id','ingredient_id','nested_compound_id','quantity','unit'],
+  'menu-item-compound-ingredients': ['menu_item_id','compound_ingredient_id','quantity','unit'],
   tasks: ['title','category','status','priority','due_time','notes'],
   playbook: ['title','category','content']
 };

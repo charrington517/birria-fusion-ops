@@ -131,7 +131,7 @@ function App(){
         {page==='ingredients' && <IngredientsPage ingredients={data} inventory={overview.data.inventory||[]} api={auth.api} refresh={refresh}/>}
         {page==='compounds'   && <CompoundsPage compounds={data} ingredients={overview.data.ingredients||[]} allCompounds={overview.data.compounds||[]} api={auth.api} refresh={refresh}/>}
         {page==='recipes'     && <RecipesPage recipes={data} ingredients={overview.data.ingredients||[]} api={auth.api} refresh={refresh}/>}
-        {page==='menu'        && <MenuPage menuItems={data} recipes={overview.data.recipes||[]} api={auth.api} refresh={refresh}/>}
+        {page==='menu'        && <MenuPage menuItems={data} recipes={overview.data.recipes||[]} allCompounds={overview.data.compounds||[]} api={auth.api} refresh={refresh}/>}
         {page==='events'      && <EventsPage events={data} menuItems={overview.data.menu||[]} api={auth.api} refresh={refresh} setModal={setModal} remove={remove}/>}
         {page!=='today'&&page!=='ai'&&page!=='inventory'&&page!=='ingredients'&&page!=='compounds'&&page!=='recipes'&&page!=='menu'&&page!=='events'&&
           <Collection page={page} data={data} setModal={setModal} remove={remove}/>}
@@ -617,11 +617,16 @@ function RecipeModal({recipe,ingredients,api,onSave,onClose}){
 }
 
 // ── Menu Page ──────────────────────────────────────────────────────────────────
-function MenuPage({menuItems,recipes,api,refresh}){
+function MenuPage({menuItems,recipes,allCompounds,api,refresh}){
   const [costs,setCosts]=useState({});
-  const [lines,setLines]=useState({});
   const [editing,setEditing]=useState(null);
-  useEffect(()=>{ api('/api/menu/costs').then(all=>{ const cm={}; all.forEach(c=>{cm[c.menu_item_id]=c;}); setCosts(cm); all.forEach(c=>{ if(c.recipe_id) api(`/api/recipes/${c.recipe_id}/cost`).then(d=>setLines(l=>({...l,[c.menu_item_id]:d.lines||[]}))).catch(()=>{}); }); }).catch(()=>{}); },[menuItems]);
+  useEffect(()=>{
+    api('/api/menu/costs').then(all=>{
+      const cm={};
+      all.forEach(c=>{ cm[c.menu_item_id]=c; });
+      setCosts(cm);
+    }).catch(()=>{});
+  },[menuItems]);
   async function save(form){ const id=form.id; await api(`/api/menu${id?`/${id}`:''}`,{method:id?'PUT':'POST',body:JSON.stringify(form)}); setEditing(null); await refresh(); }
   async function duplicate(item){ const {id,created_at,...rest}=item; await api('/api/menu',{method:'POST',body:JSON.stringify({...rest,name:`${item.name} (copy)`})}); await refresh(); }
   async function del(id){ if(!confirm('Delete menu item?')) return; await api(`/api/menu/${id}`,{method:'DELETE'}); await refresh(); }
@@ -635,7 +640,7 @@ function MenuPage({menuItems,recipes,api,refresh}){
     {Object.keys(grouped).sort().map(cat=><div key={cat} style={{marginBottom:24}}>
       <div style={{color:'#fb923c',fontWeight:900,fontSize:13,textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:10,borderBottom:'1px solid rgba(249,115,22,.3)',paddingBottom:6}}>{cat}</div>
       <div className="grid cards">
-        {grouped[cat].map(item=>{ const c=costs[item.id]; const itemLines=lines[item.id]||[]; const rcost=c?c.recipe_cost:Number(item.cost); const mgn=c?c.gross_margin_percent:(item.price>0?((item.price-item.cost)/item.price)*100:0); const profit=Number(item.price)-rcost; const src=c?c.cost_source:'manual'; const s65=rcost>0?Number((rcost/(1-0.65)).toFixed(2)):null; const s70=rcost>0?Number((rcost/(1-0.70)).toFixed(2)):null; const s75=rcost>0?Number((rcost/(1-0.75)).toFixed(2)):null;
+        {grouped[cat].map(item=>{ const c=costs[item.id]; const rcost=c?c.recipe_cost:Number(item.cost); const mgn=c?c.gross_margin_percent:(item.price>0?((item.price-item.cost)/item.price)*100:0); const profit=Number(item.price)-rcost; const src=c?c.cost_source:'manual'; const s65=rcost>0?Number((rcost/(1-0.65)).toFixed(2)):null; const s70=rcost>0?Number((rcost/(1-0.70)).toFixed(2)):null; const s75=rcost>0?Number((rcost/(1-0.75)).toFixed(2)):null;
           return <div className="card" key={item.id}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
               <div><h3 style={{margin:'0 0 2px'}}>{item.name}</h3>{!item.active&&<span className="badge" style={{background:'rgba(239,68,68,.2)',color:'#fca5a5',fontSize:10}}>INACTIVE</span>}</div>
@@ -654,22 +659,61 @@ function MenuPage({menuItems,recipes,api,refresh}){
                   <div className="sug-price" style={{borderColor:Number(item.price)>=s70?'#86efac':'rgba(255,255,255,.1)'}}><div className="muted" style={{fontSize:10}}>70%</div><div style={{fontWeight:900,fontSize:14}}>{money(s70)}</div></div>
                   <div className="sug-price" style={{borderColor:Number(item.price)>=s75?'#86efac':'rgba(255,255,255,.1)'}}><div className="muted" style={{fontSize:10}}>75%</div><div style={{fontWeight:900,fontSize:14}}>{money(s75)}</div></div>
                 </div></>}
-              {itemLines.length>0&&<><div className="muted" style={{fontSize:11,marginTop:8,marginBottom:4,textTransform:'uppercase',letterSpacing:'0.08em'}}>Ingredient Breakdown</div>
-                {itemLines.map((l,i)=><div key={i} className="profit-row" style={{fontSize:12}}><span>{l.ingredient}</span><span className="muted">×{l.quantity} {l.unit}</span><span style={{color:'#fca5a5'}}>{money(l.line_cost)}</span></div>)}</>}
+              {c?.ingredient_lines?.length>0&&<>
+                <div className="muted" style={{fontSize:11,marginTop:8,marginBottom:4,textTransform:'uppercase',letterSpacing:'0.08em'}}>Ingredients</div>
+                {c.ingredient_lines.map((l,i)=><div key={i} className="profit-row" style={{fontSize:12}}><span>{l.ingredient}</span><span className="muted">×{l.quantity} {l.unit}</span><span style={{color:'#fca5a5'}}>{money(l.line_cost)}</span></div>)}
+              </>}
+              {c?.compound_lines?.length>0&&<>
+                <div className="muted" style={{fontSize:11,marginTop:6,marginBottom:4,textTransform:'uppercase',letterSpacing:'0.08em'}}>Compound Ingredients</div>
+                {c.compound_lines.map((l,i)=><div key={i} className="profit-row" style={{fontSize:12}}>
+                  <span style={{display:'flex',alignItems:'center',gap:6}}><span className="badge" style={{fontSize:10,padding:'2px 5px',background:'rgba(168,85,247,.18)',color:'#d8b4fe'}}>C</span>{l.compound_name}</span>
+                  <span className="muted">×{l.quantity} {l.unit}</span>
+                  <span style={{color:'#fca5a5'}}>{money(l.line_cost)}</span>
+                </div>)}
+              </>}
             </div>
             <div className="actions" style={{marginTop:10,flexWrap:'wrap'}}><button onClick={()=>setEditing(item)}>Edit</button><button onClick={()=>duplicate(item)}>Duplicate</button><button onClick={()=>del(item.id)}>Delete</button></div>
           </div>;
         })}
       </div>
     </div>)}
-    {editing!==null&&<MenuItemModal item={editing} recipes={recipes} onSave={save} onClose={()=>setEditing(null)}/>}
+    {editing!==null&&<MenuItemModal item={editing} recipes={recipes} allCompounds={allCompounds} api={api} onSave={save} onClose={()=>setEditing(null)}/>}
   </>;
 }
-function MenuItemModal({item,recipes,onSave,onClose}){
+function MenuItemModal({item,recipes,allCompounds,api,onSave,onClose}){
   const isNew=!item.id;
   const [form,setForm]=useState({id:item.id,name:item.name||'',category:item.category||'Entree',price:item.price||'',description:item.description||'',prep_notes:item.prep_notes||'',active:item.active!==false,recipe_id:item.recipe_id||'',portions:item.portions||1});
+  const [compRows, setCompRows] = useState([]);
+  const [loadingComp, setLoadingComp] = useState(!isNew);
   function set(k,v){setForm(f=>({...f,[k]:v}));}
-  return <div className="modal"><div className="modal-card">
+
+  useEffect(()=>{
+    if(!item.id){ setLoadingComp(false); return; }
+    api(`/api/menu-item-compound-ingredients?menu_item_id=${item.id}`)
+      .then(data=>{ setCompRows(data.map(r=>({id:r.id,compound_ingredient_id:r.compound_ingredient_id,quantity:r.quantity,unit:r.unit}))); setLoadingComp(false); })
+      .catch(()=>setLoadingComp(false));
+  },[]);
+
+  async function save(){
+    const saved = await api(`/api/menu${form.id?`/${form.id}`:''}`,{method:form.id?'PUT':'POST',body:JSON.stringify(form)});
+    const menuId = form.id || saved.id;
+    // sync compound rows: delete existing, re-insert
+    const existing = await api(`/api/menu-item-compound-ingredients?menu_item_id=${menuId}`);
+    for(const r of existing) await api(`/api/menu-item-compound-ingredients/${r.id}`,{method:'DELETE'}).catch(()=>{});
+    for(const row of compRows){
+      if(!row.compound_ingredient_id||!row.quantity||Number(row.quantity)<=0) continue;
+      await api('/api/menu-item-compound-ingredients',{method:'POST',body:JSON.stringify({menu_item_id:menuId,compound_ingredient_id:Number(row.compound_ingredient_id),quantity:Number(row.quantity),unit:row.unit})});
+    }
+    onSave(form);
+  }
+
+  function addCompRow(){ setCompRows(r=>[...r,{compound_ingredient_id:'',quantity:1,unit:''}]); }
+  function updateComp(i,k,v){ setCompRows(r=>r.map((row,idx)=>idx===i?{...row,[k]:v}:row)); }
+  function removeComp(i){ setCompRows(r=>r.filter((_,idx)=>idx!==i)); }
+
+  if(loadingComp) return <div className="modal"><div className="modal-card"><p className="muted">Loading…</p></div></div>;
+
+  return <div className="modal"><div className="modal-card" style={{maxHeight:'90vh',overflowY:'auto'}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}><h3 style={{margin:0}}>{isNew?'Add':'Edit'} Menu Item</h3><button onClick={onClose}>×</button></div>
     <div className="form">
       <label><div className="muted">Name</div><input value={form.name} onChange={e=>set('name',e.target.value)}/></label>
@@ -681,14 +725,31 @@ function MenuItemModal({item,recipes,onSave,onClose}){
         <label><div className="muted">Portions</div><input type="number" min="1" value={form.portions} onChange={e=>set('portions',e.target.value)}/></label>
         <label style={{display:'flex',alignItems:'center',gap:8,paddingTop:20}}><input type="checkbox" checked={form.active} onChange={e=>set('active',e.target.checked)} style={{width:'auto'}}/><span className="muted">Active on menu</span></label>
       </div>
-      <label><div className="muted">Assign Recipe (cost calculation)</div>
+      <label><div className="muted">Assign Recipe (ingredient costing)</div>
         <select value={form.recipe_id||''} onChange={e=>set('recipe_id',e.target.value||null)} style={{background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:12,padding:'11px 13px',width:'100%'}}>
-          <option value="">— manual cost only —</option>{recipes.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
+          <option value="">— no recipe —</option>{recipes.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
       </label>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:4}}>
+        <div style={{fontWeight:900,fontSize:13}}>Compound Ingredients</div>
+        <button onClick={addCompRow} style={{padding:'5px 10px',fontSize:12}}>+ Add</button>
+      </div>
+      {compRows.length===0 && <p className="muted" style={{fontSize:12,margin:'4px 0'}}>No compound ingredients assigned.</p>}
+      {compRows.map((row,i)=>{
+        const ci=allCompounds.find(c=>c.id===Number(row.compound_ingredient_id));
+        return <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 70px 70px 28px',gap:8,alignItems:'center',marginBottom:6}}>
+          <select value={row.compound_ingredient_id} onChange={e=>{ updateComp(i,'compound_ingredient_id',e.target.value); const c=allCompounds.find(x=>x.id===Number(e.target.value)); if(c) updateComp(i,'unit',c.yield_unit); }} style={selectStyle}>
+            <option value="">Select compound…</option>
+            {allCompounds.map(c=><option key={c.id} value={c.id}>{c.name} ({c.yield_unit})</option>)}
+          </select>
+          <input type="number" step="0.01" min="0.01" value={row.quantity} onChange={e=>updateComp(i,'quantity',e.target.value)} style={{borderRadius:10,background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',padding:'8px'}}/>
+          <input value={row.unit||ci?.yield_unit||''} onChange={e=>updateComp(i,'unit',e.target.value)} placeholder="unit" style={{borderRadius:10,background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',padding:'8px'}}/>
+          <button onClick={()=>removeComp(i)} style={{padding:'4px 8px',background:'rgba(239,68,68,.3)'}}>×</button>
+        </div>;
+      })}
       <label><div className="muted">Description</div><textarea value={form.description} onChange={e=>set('description',e.target.value)}/></label>
       <label><div className="muted">Prep Notes</div><textarea value={form.prep_notes} onChange={e=>set('prep_notes',e.target.value)}/></label>
-      <button className="primary" onClick={()=>onSave(form)}>Save Item</button>
+      <button className="primary" onClick={save}>Save Item</button>
     </div>
   </div></div>;
 }
