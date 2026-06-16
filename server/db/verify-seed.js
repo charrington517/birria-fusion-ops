@@ -16,8 +16,8 @@ const EXPECTED = {
   tasks:               2,
   playbook:            2,
   expenses:            3,
-  compound_ingredients:             1,
-  compound_ingredient_components:   3,
+  compound_ingredients:             2,
+  compound_ingredient_components:   6,
 };
 
 // Expected FK linkages verified by name

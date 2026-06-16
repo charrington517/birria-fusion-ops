@@ -277,6 +277,28 @@ async function seed() {
       );
     }
     console.log('Seeded compound ingredient: Birria Consomé Base (id=' + compoundId + ')');
+    // ── Birria Meat compound ─────────────────────────────────────────
+    const bmResult = await query(
+      `INSERT INTO compound_ingredients (name, category, yield_amount, yield_unit, notes, active)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      ['Birria Meat', 'Protein', 10, 'lb',
+       'Braised birria beef using in-house consom\u00e9 base. Slow braise 3-4 hrs.', true]
+    );
+    const bmId = bmResult.rows[0].id;
+    const bmComponents = [
+      { ingredient_id: chuckId,    nested_compound_id: null,       quantity: 8, unit: 'lb' },
+      { ingredient_id: shankId,    nested_compound_id: null,       quantity: 4, unit: 'lb' },
+      { ingredient_id: null,       nested_compound_id: compoundId, quantity: 4, unit: 'qt' },
+    ];
+    for (const c of bmComponents) {
+      await query(
+        `INSERT INTO compound_ingredient_components
+           (parent_id, ingredient_id, nested_compound_id, quantity, unit)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [bmId, c.ingredient_id, c.nested_compound_id, c.quantity, c.unit]
+      );
+    }
+    console.log('Seeded compound ingredient: Birria Meat (id=' + bmId + ')');
   }
 
   await query('INSERT INTO activity (message) VALUES ($1)', ['Production AI foundation seeded']);
