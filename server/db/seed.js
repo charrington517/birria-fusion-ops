@@ -130,10 +130,7 @@ async function seed() {
       { recipe_id: rConsomme,    ingredient_id: iShank,    quantity: 4,    unit: 'lb'      },
       { recipe_id: rConsomme,    ingredient_id: iGuajillo, quantity: 3,    unit: 'oz'      },
       // Quesabirria Assembly (8)
-      { recipe_id: rQuesabirria, ingredient_id: iChuck,    quantity: 0.25, unit: 'lb'      },
-      { recipe_id: rQuesabirria, ingredient_id: iGuajillo, quantity: 0.1,  unit: 'oz'      },
       { recipe_id: rQuesabirria, ingredient_id: iTortilla, quantity: 3,    unit: 'each'    },
-      { recipe_id: rQuesabirria, ingredient_id: iConsome,  quantity: 0.25, unit: 'qt'      },
       { recipe_id: rQuesabirria, ingredient_id: iCilantro, quantity: 0.05, unit: 'bunch'   },
       { recipe_id: rQuesabirria, ingredient_id: iBowl,     quantity: 1,    unit: 'each'    },
       { recipe_id: rQuesabirria, ingredient_id: iOaxaca,   quantity: 2.0,  unit: 'oz'      },
@@ -149,8 +146,6 @@ async function seed() {
       { recipe_id: rRamen,       ingredient_id: iOnion,    quantity: 0.1,  unit: 'each'    },
       { recipe_id: rRamen,       ingredient_id: iBowl,     quantity: 1.0,  unit: 'each'    },
       // Birria Torta (9)
-      { recipe_id: rTorta,       ingredient_id: iChuck,    quantity: 0.2,  unit: 'lb'      },
-      { recipe_id: rTorta,       ingredient_id: iConsome,  quantity: 0.25, unit: 'qt'      },
       { recipe_id: rTorta,       ingredient_id: iBolillo,  quantity: 1.0,  unit: 'each'    },
       { recipe_id: rTorta,       ingredient_id: iOaxaca,   quantity: 2.0,  unit: 'oz'      },
       { recipe_id: rTorta,       ingredient_id: iBeans,    quantity: 2.0,  unit: 'oz'      },
@@ -299,6 +294,32 @@ async function seed() {
       );
     }
     console.log('Seeded compound ingredient: Birria Meat (id=' + bmId + ')');
+  }
+
+
+  // ── Menu Item Compound Ingredients (Phase 1: Tacos + Torta) ──────────────
+  const miciCount = await query('SELECT COUNT(*)::int AS count FROM menu_item_compound_ingredients');
+  if (miciCount.rows[0].count === 0) {
+    const tacoId  = await lookupId('menu_items', 'name', 'Quesabirria Tacos');
+    const tortaId = await lookupId('menu_items', 'name', 'Birria Torta');
+    const bmId    = await lookupId('compound_ingredients', 'name', 'Birria Meat');
+    const cbId    = await lookupId('compound_ingredients', 'name', 'Birria Consom\u00e9 Base');
+
+    const miciRows = [
+      { menu_item_id: tacoId,  compound_ingredient_id: bmId, quantity: 0.25, unit: 'lb' },
+      { menu_item_id: tacoId,  compound_ingredient_id: cbId, quantity: 0.25, unit: 'qt' },
+      { menu_item_id: tortaId, compound_ingredient_id: bmId, quantity: 0.25, unit: 'lb' },
+      { menu_item_id: tortaId, compound_ingredient_id: cbId, quantity: 0.25, unit: 'qt' },
+    ];
+    for (const row of miciRows) {
+      await query(
+        `INSERT INTO menu_item_compound_ingredients
+           (menu_item_id, compound_ingredient_id, quantity, unit)
+         VALUES ($1, $2, $3, $4)`,
+        [row.menu_item_id, row.compound_ingredient_id, row.quantity, row.unit]
+      );
+    }
+    console.log('Seeded menu_item_compound_ingredients: 4 rows (Phase 1)');
   }
 
   await query('INSERT INTO activity (message) VALUES ($1)', ['Production AI foundation seeded']);

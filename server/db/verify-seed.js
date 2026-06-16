@@ -6,7 +6,7 @@ const EXPECTED = {
   inventory:           14,
   ingredients:         14,
   recipes:             4,
-  recipe_ingredients:  29,
+  recipe_ingredients:  24,
   menu_items:          3,
   catering:            2,
   events:              1,
@@ -18,7 +18,7 @@ const EXPECTED = {
   expenses:            3,
   compound_ingredients:             2,
   compound_ingredient_components:   6,
-  menu_item_compound_ingredients:   0,
+  menu_item_compound_ingredients:   4,
 };
 
 // Expected FK linkages verified by name
@@ -47,9 +47,9 @@ const EXPECTED_MENU_RECIPE_LINKS = [
 
 const EXPECTED_RI_COUNTS = {
   'Birria Consomme Base': 3,
-  'Quesabirria Assembly': 8,
+  'Quesabirria Assembly': 5,
   'Birria Ramen':         9,
-  'Birria Torta':         9,
+  'Birria Torta':         7,
 };
 
 async function verify() {
