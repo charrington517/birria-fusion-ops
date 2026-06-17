@@ -620,6 +620,7 @@ function RecipeModal({recipe,ingredients,api,onSave,onClose}){
 function MenuPage({menuItems,recipes,allCompounds,api,refresh}){
   const [costs,setCosts]=useState({});
   const [editing,setEditing]=useState(null);
+
   useEffect(()=>{
     api('/api/menu/costs').then(all=>{
       const cm={};
@@ -627,11 +628,14 @@ function MenuPage({menuItems,recipes,allCompounds,api,refresh}){
       setCosts(cm);
     }).catch(()=>{});
   },[menuItems]);
+
   async function save(form){ const id=form.id; await api(`/api/menu${id?`/${id}`:''}`,{method:id?'PUT':'POST',body:JSON.stringify(form)}); setEditing(null); await refresh(); }
   async function duplicate(item){ const {id,created_at,...rest}=item; await api('/api/menu',{method:'POST',body:JSON.stringify({...rest,name:`${item.name} (copy)`})}); await refresh(); }
   async function del(id){ if(!confirm('Delete menu item?')) return; await api(`/api/menu/${id}`,{method:'DELETE'}); await refresh(); }
+
   const grouped={};
   menuItems.forEach(item=>{ const c=item.category||'Uncategorized'; if(!grouped[c]) grouped[c]=[]; grouped[c].push(item); });
+
   return <>
     <div className="card" style={{marginBottom:18,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
       <div><h3>Menu</h3><p className="muted">{menuItems.length} items</p></div>
@@ -640,45 +644,99 @@ function MenuPage({menuItems,recipes,allCompounds,api,refresh}){
     {Object.keys(grouped).sort().map(cat=><div key={cat} style={{marginBottom:24}}>
       <div style={{color:'#fb923c',fontWeight:900,fontSize:13,textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:10,borderBottom:'1px solid rgba(249,115,22,.3)',paddingBottom:6}}>{cat}</div>
       <div className="grid cards">
-        {grouped[cat].map(item=>{ const c=costs[item.id]; const rcost=c?c.recipe_cost:Number(item.cost); const mgn=c?c.gross_margin_percent:(item.price>0?((item.price-item.cost)/item.price)*100:0); const profit=Number(item.price)-rcost; const src=c?c.cost_source:'manual'; const s65=rcost>0?Number((rcost/(1-0.65)).toFixed(2)):null; const s70=rcost>0?Number((rcost/(1-0.70)).toFixed(2)):null; const s75=rcost>0?Number((rcost/(1-0.75)).toFixed(2)):null;
-          return <div className="card" key={item.id}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
-              <div><h3 style={{margin:'0 0 2px'}}>{item.name}</h3>{!item.active&&<span className="badge" style={{background:'rgba(239,68,68,.2)',color:'#fca5a5',fontSize:10}}>INACTIVE</span>}</div>
-              <div style={{textAlign:'right'}}><div style={{fontSize:22,fontWeight:900}}>{money(item.price)}</div><div style={{fontSize:11,color:marginColor(mgn),fontWeight:700}}>{marginLabel(mgn)} · {pct(mgn)}</div></div>
-            </div>
-            {item.description&&<p className="muted" style={{fontSize:12,margin:'6px 0 0'}}>{item.description}</p>}
-            <div className="profit-panel" style={{marginTop:10}}>
-              {c?.recipe_name&&<div className="profit-row"><span className="muted">Recipe</span><span>{c.recipe_name}</span></div>}
-              <div className="profit-row"><span className="muted">Food Cost <span style={{fontSize:10,opacity:.6}}>({src})</span></span><span style={{color:'#fca5a5',fontWeight:900}}>{money(rcost)}</span></div>
-              <div className="profit-row"><span className="muted">Actual Price</span><span style={{fontWeight:900}}>{money(item.price)}</span></div>
-              <div className="profit-row"><span className="muted">Profit / Plate</span><span style={{color:'#86efac',fontWeight:900}}>{money(profit)}</span></div>
-              <div className="profit-row"><span className="muted">Margin</span><span style={{color:marginColor(mgn),fontWeight:900}}>{pct(mgn)}</span></div>
-              {s65&&<><div className="muted" style={{fontSize:11,marginTop:8,marginBottom:4,textTransform:'uppercase',letterSpacing:'0.08em'}}>Suggested Price</div>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6}}>
-                  <div className="sug-price" style={{borderColor:Number(item.price)>=s65?'#86efac':'rgba(255,255,255,.1)'}}><div className="muted" style={{fontSize:10}}>65%</div><div style={{fontWeight:900,fontSize:14}}>{money(s65)}</div></div>
-                  <div className="sug-price" style={{borderColor:Number(item.price)>=s70?'#86efac':'rgba(255,255,255,.1)'}}><div className="muted" style={{fontSize:10}}>70%</div><div style={{fontWeight:900,fontSize:14}}>{money(s70)}</div></div>
-                  <div className="sug-price" style={{borderColor:Number(item.price)>=s75?'#86efac':'rgba(255,255,255,.1)'}}><div className="muted" style={{fontSize:10}}>75%</div><div style={{fontWeight:900,fontSize:14}}>{money(s75)}</div></div>
-                </div></>}
-              {c?.ingredient_lines?.length>0&&<>
-                <div className="muted" style={{fontSize:11,marginTop:8,marginBottom:4,textTransform:'uppercase',letterSpacing:'0.08em'}}>Ingredients</div>
-                {c.ingredient_lines.map((l,i)=><div key={i} className="profit-row" style={{fontSize:12}}><span>{l.ingredient}</span><span className="muted">×{l.quantity} {l.unit}</span><span style={{color:'#fca5a5'}}>{money(l.line_cost)}</span></div>)}
-              </>}
-              {c?.compound_lines?.length>0&&<>
-                <div className="muted" style={{fontSize:11,marginTop:6,marginBottom:4,textTransform:'uppercase',letterSpacing:'0.08em'}}>Compound Ingredients</div>
-                {c.compound_lines.map((l,i)=><div key={i} className="profit-row" style={{fontSize:12}}>
-                  <span style={{display:'flex',alignItems:'center',gap:6}}><span className="badge" style={{fontSize:10,padding:'2px 5px',background:'rgba(168,85,247,.18)',color:'#d8b4fe'}}>C</span>{l.compound_name}</span>
-                  <span className="muted">×{l.quantity} {l.unit}</span>
-                  <span style={{color:'#fca5a5'}}>{money(l.line_cost)}</span>
-                </div>)}
-              </>}
-            </div>
-            <div className="actions" style={{marginTop:10,flexWrap:'wrap'}}><button onClick={()=>setEditing(item)}>Edit</button><button onClick={()=>duplicate(item)}>Duplicate</button><button onClick={()=>del(item.id)}>Delete</button></div>
-          </div>;
-        })}
+        {grouped[cat].map(item=>(
+          <MenuCard key={item.id} item={item} cost={costs[item.id]}
+            onEdit={()=>setEditing(item)}
+            onDuplicate={()=>duplicate(item)}
+            onDelete={()=>del(item.id)}/>
+        ))}
       </div>
     </div>)}
     {editing!==null&&<MenuItemModal item={editing} recipes={recipes} allCompounds={allCompounds} api={api} onSave={save} onClose={()=>setEditing(null)}/>}
   </>;
+}
+
+function MenuCard({item, cost, onEdit, onDuplicate, onDelete}){
+  const [open, setOpen] = useState(false);
+  const c = cost;
+  const rcost  = c ? c.recipe_cost : Number(item.cost);
+  const mgn    = c ? c.gross_margin_percent : (item.price>0?((item.price-item.cost)/item.price)*100:0);
+  const profit = Number(item.price) - rcost;
+  const src    = c ? c.cost_source : 'manual';
+  const s65    = rcost>0 ? Number((rcost/(1-0.65)).toFixed(2)) : null;
+  const s70    = rcost>0 ? Number((rcost/(1-0.70)).toFixed(2)) : null;
+  const s75    = rcost>0 ? Number((rcost/(1-0.75)).toFixed(2)) : null;
+
+  return <div className="card menu-card">
+    {/* ── Compact header — always visible ─────────────────────────────── */}
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',cursor:'pointer'}}
+         onClick={()=>setOpen(o=>!o)}>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+          <h3 style={{margin:0,fontSize:15}}>{item.name}</h3>
+          {!item.active&&<span className="badge" style={{background:'rgba(239,68,68,.2)',color:'#fca5a5',fontSize:10}}>INACTIVE</span>}
+        </div>
+        <div style={{display:'flex',gap:12,marginTop:4,flexWrap:'wrap'}}>
+          <span style={{fontSize:12,color:'#fca5a5'}}>Cost {money(rcost)}</span>
+          <span style={{fontSize:12,color:'#86efac'}}>Profit {money(profit)}</span>
+          <span style={{fontSize:12,color:marginColor(mgn),fontWeight:700}}>{marginLabel(mgn)} {pct(mgn)}</span>
+        </div>
+      </div>
+      <div style={{display:'flex',alignItems:'center',gap:8,flexShrink:0,marginLeft:8}}>
+        <div style={{fontSize:20,fontWeight:900}}>{money(item.price)}</div>
+        <span style={{fontSize:16,color:'#a1a1aa',userSelect:'none'}}>{open?'▲':'▼'}</span>
+      </div>
+    </div>
+
+    {/* ── Expanded detail ──────────────────────────────────────────────── */}
+    {open && <div style={{marginTop:12,paddingTop:12,borderTop:'1px solid rgba(255,255,255,.08)'}}>
+      {item.description&&<p className="muted" style={{fontSize:12,margin:'0 0 10px'}}>{item.description}</p>}
+
+      <div className="profit-panel" style={{marginTop:0}}>
+        {c?.recipe_name&&<div className="profit-row"><span className="muted">Recipe</span><span>{c.recipe_name}</span></div>}
+        <div className="profit-row"><span className="muted">Food Cost <span style={{fontSize:10,opacity:.6}}>({src})</span></span><span style={{color:'#fca5a5',fontWeight:900}}>{money(rcost)}</span></div>
+        <div className="profit-row"><span className="muted">Actual Price</span><span style={{fontWeight:900}}>{money(item.price)}</span></div>
+        <div className="profit-row"><span className="muted">Profit / Plate</span><span style={{color:'#86efac',fontWeight:900}}>{money(profit)}</span></div>
+        <div className="profit-row"><span className="muted">Margin</span><span style={{color:marginColor(mgn),fontWeight:900}}>{pct(mgn)}</span></div>
+
+        {s65&&<>
+          <div className="muted" style={{fontSize:11,marginTop:8,marginBottom:4,textTransform:'uppercase',letterSpacing:'0.08em'}}>Suggested Price</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6}}>
+            <div className="sug-price" style={{borderColor:Number(item.price)>=s65?'#86efac':'rgba(255,255,255,.1)'}}><div className="muted" style={{fontSize:10}}>65%</div><div style={{fontWeight:900,fontSize:14}}>{money(s65)}</div></div>
+            <div className="sug-price" style={{borderColor:Number(item.price)>=s70?'#86efac':'rgba(255,255,255,.1)'}}><div className="muted" style={{fontSize:10}}>70%</div><div style={{fontWeight:900,fontSize:14}}>{money(s70)}</div></div>
+            <div className="sug-price" style={{borderColor:Number(item.price)>=s75?'#86efac':'rgba(255,255,255,.1)'}}><div className="muted" style={{fontSize:10}}>75%</div><div style={{fontWeight:900,fontSize:14}}>{money(s75)}</div></div>
+          </div>
+        </>}
+
+        {c?.ingredient_lines?.length>0&&<>
+          <div className="muted" style={{fontSize:11,marginTop:8,marginBottom:4,textTransform:'uppercase',letterSpacing:'0.08em'}}>Ingredients</div>
+          {c.ingredient_lines.map((l,i)=><div key={i} className="profit-row" style={{fontSize:12}}>
+            <span>{l.ingredient}</span><span className="muted">×{l.quantity} {l.unit}</span><span style={{color:'#fca5a5'}}>{money(l.line_cost)}</span>
+          </div>)}
+        </>}
+
+        {c?.compound_lines?.length>0&&<>
+          <div className="muted" style={{fontSize:11,marginTop:6,marginBottom:4,textTransform:'uppercase',letterSpacing:'0.08em'}}>Compound Ingredients</div>
+          {c.compound_lines.map((l,i)=><div key={i} className="profit-row" style={{fontSize:12}}>
+            <span style={{display:'flex',alignItems:'center',gap:6}}><span className="badge" style={{fontSize:10,padding:'2px 5px',background:'rgba(168,85,247,.18)',color:'#d8b4fe'}}>C</span>{l.compound_name}</span>
+            <span className="muted">×{l.quantity} {l.unit}</span>
+            <span style={{color:'#fca5a5'}}>{money(l.line_cost)}</span>
+          </div>)}
+        </>}
+
+        {item.prep_notes&&<>
+          <div className="muted" style={{fontSize:11,marginTop:8,marginBottom:4,textTransform:'uppercase',letterSpacing:'0.08em'}}>Prep Notes</div>
+          <div className="profit-row" style={{fontSize:12}}><span>{item.prep_notes}</span></div>
+        </>}
+      </div>
+
+      <div className="actions" style={{marginTop:10,flexWrap:'wrap'}}>
+        <button onClick={e=>{e.stopPropagation();onEdit();}}>Edit</button>
+        <button onClick={e=>{e.stopPropagation();onDuplicate();}}>Duplicate</button>
+        <button onClick={e=>{e.stopPropagation();onDelete();}}>Delete</button>
+      </div>
+    </div>}
+  </div>;
 }
 function MenuItemModal({item,recipes,allCompounds,api,onSave,onClose}){
   const isNew=!item.id;
