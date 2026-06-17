@@ -538,8 +538,7 @@ function IngredientModal({ingredient,inventory,onSave,onClose}){
 // ── Recipes Page ────────────────────────────────────────────────────────────────
 function RecipesPage({recipes,ingredients,api,refresh}){
   const [editing,setEditing]=useState(null);
-  const [costs,setCosts]=useState({});
-  useEffect(()=>{ recipes.forEach(r=>{ api(`/api/recipes/${r.id}/cost`).then(d=>setCosts(c=>({...c,[r.id]:d}))).catch(()=>{}); }); },[recipes]);
+
   async function save(form,riRows){
     const id=form.id;
     const saved=await api(`/api/recipes${id?`/${id}`:''}`,{method:id?'PUT':'POST',body:JSON.stringify(form)});
@@ -550,24 +549,97 @@ function RecipesPage({recipes,ingredients,api,refresh}){
     for(const row of riRows){ if(!row.ingredient_id||!row.quantity) continue; await api('/api/recipe-ingredients',{method:'POST',body:JSON.stringify({recipe_id:recipeId,ingredient_id:row.ingredient_id,quantity:row.quantity,unit:row.unit})}); }
     setEditing(null); await refresh();
   }
-  async function del(id){ if(!confirm('Delete recipe?')) return; await api(`/api/recipes/${id}`,{method:'DELETE'}); await refresh(); }
+  async function del(id){ if(!confirm('Delete recipe? This removes all ingredient assignments.')) return; await api(`/api/recipes/${id}`,{method:'DELETE'}); await refresh(); }
+
   return <>
     <div className="card" style={{marginBottom:18,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-      <div><h3>Recipes</h3><p className="muted">{recipes.length} recipes</p></div>
+      <div><h3>Recipe Book</h3><p className="muted">{recipes.length} recipes</p></div>
       <button className="primary" onClick={()=>setEditing({riRows:[]})}>Add Recipe</button>
     </div>
     <div className="grid cards">
-      {recipes.map(r=>{ const c=costs[r.id]; return <div className="card" key={r.id}>
-        <h3>{r.name}</h3>
-        <p className="muted">{r.category} · Yield: {r.yield_amount} {r.yield_unit}</p>
-        {r.prep_time&&<p className="muted">Prep: {r.prep_time}{r.cook_time?` · Cook: ${r.cook_time}`:''}</p>}
-        {c&&<p className="muted" style={{color:'#86efac'}}>Cost: {money(c.total_cost)} · Per serving: {money(c.cost_per_serving)}</p>}
-        {c&&c.lines&&c.lines.length>0&&<div style={{marginTop:8}}>{c.lines.map((l,i)=><div key={i} className="profit-row" style={{fontSize:12}}><span>{l.ingredient}</span><span className="muted">×{l.quantity} {l.unit}</span><span>{money(l.line_cost)}</span></div>)}</div>}
-        {r.notes&&<p className="muted" style={{fontSize:12,marginTop:6}}>{r.notes}</p>}
-        <div className="actions" style={{marginTop:10}}><button onClick={()=>setEditing({...r,riRows:c?.lines?c.lines.map(l=>({...l,ingredient_id:null})):[]})}>Edit</button><button onClick={()=>del(r.id)}>Delete</button></div>
-      </div>; })}
+      {recipes.map(r=>(
+        <RecipeCard key={r.id} recipe={r} ingredients={ingredients}
+          onEdit={()=>setEditing({...r,riRows:[]})}
+          onDelete={()=>del(r.id)}/>
+      ))}
     </div>
     {editing!==null&&<RecipeModal recipe={editing} ingredients={ingredients} api={api} onSave={save} onClose={()=>setEditing(null)}/>}
+  </>;
+}
+
+function RecipeCard({recipe, ingredients, onEdit, onDelete}){
+  const [open, setOpen] = useState(false);
+  const r = recipe;
+
+  return <div className="card menu-card">
+    {/* ── Compact header ───────────────────────────────────────────────── */}
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',cursor:'pointer'}}
+         onClick={()=>setOpen(o=>!o)}>
+      <div style={{flex:1,minWidth:0}}>
+        <h3 style={{margin:'0 0 3px',fontSize:15}}>{r.name}</h3>
+        <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+          <span className="muted" style={{fontSize:12}}>{r.category}</span>
+          <span className="muted" style={{fontSize:12}}>Yield: {r.yield_amount} {r.yield_unit}</span>
+          {r.prep_time&&<span className="muted" style={{fontSize:12}}>Prep: {r.prep_time}</span>}
+          {r.cook_time&&<span className="muted" style={{fontSize:12}}>Cook: {r.cook_time}</span>}
+        </div>
+      </div>
+      <span style={{fontSize:16,color:'#a1a1aa',userSelect:'none',marginLeft:8,flexShrink:0}}>{open?'▲':'▼'}</span>
+    </div>
+
+    {/* ── Expanded cookbook detail ─────────────────────────────────────── */}
+    {open && <div style={{marginTop:12,paddingTop:12,borderTop:'1px solid rgba(255,255,255,.08)'}}>
+
+      {/* Timing + yield summary */}
+      <div className="inv-grid" style={{marginBottom:12}}>
+        <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Yield</div><div>{r.yield_amount} {r.yield_unit}</div></div>
+        <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Prep</div><div>{r.prep_time||'—'}</div></div>
+        <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Cook</div><div>{r.cook_time||'—'}</div></div>
+        <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Category</div><div>{r.category}</div></div>
+      </div>
+
+      {/* Ingredient reference list (kitchen display — no cost column) */}
+      <IngredientRef recipeId={r.id} ingredients={ingredients}/>
+
+      {/* Instructions */}
+      {r.instructions && <>
+        <div className="muted" style={{fontSize:11,marginTop:12,marginBottom:6,textTransform:'uppercase',letterSpacing:'0.08em'}}>Instructions</div>
+        <div style={{fontSize:13,lineHeight:1.7,whiteSpace:'pre-line',color:'#f8fafc',background:'rgba(255,255,255,.025)',borderRadius:10,padding:'10px 14px'}}>
+          {r.instructions}
+        </div>
+      </>}
+
+      {/* Notes */}
+      {r.notes && <>
+        <div className="muted" style={{fontSize:11,marginTop:10,marginBottom:4,textTransform:'uppercase',letterSpacing:'0.08em'}}>Notes</div>
+        <p className="muted" style={{fontSize:12,margin:0,fontStyle:'italic'}}>{r.notes}</p>
+      </>}
+
+      <div className="actions" style={{marginTop:12}}>
+        <button onClick={e=>{e.stopPropagation();onEdit();}}>Edit</button>
+        <button onClick={e=>{e.stopPropagation();onDelete();}}>Delete</button>
+      </div>
+    </div>}
+  </div>;
+}
+
+function IngredientRef({recipeId, ingredients}){
+  const [rows, setRows] = useState(null);
+  useEffect(()=>{
+    fetch(`/api/recipe-ingredients?recipe_id=${recipeId}`, {
+      headers: { Authorization: `Bearer ${localStorage.getItem('bf_token')||''}` }
+    }).then(r=>r.json()).then(setRows).catch(()=>setRows([]));
+  },[recipeId]);
+  if(!rows || rows.length===0) return null;
+  return <>
+    <div className="muted" style={{fontSize:11,marginBottom:6,textTransform:'uppercase',letterSpacing:'0.08em'}}>Ingredients</div>
+    {rows.map((row,i)=>{
+      const ing = ingredients.find(ig=>ig.id===row.ingredient_id);
+      return <div key={i} className="profit-row" style={{fontSize:12}}>
+        <span>{ing?ing.name:row.ingredient_id}</span>
+        <span className="muted">×{row.quantity} {row.unit}</span>
+      </div>;
+    })}
   </>;
 }
 function RecipeModal({recipe,ingredients,api,onSave,onClose}){

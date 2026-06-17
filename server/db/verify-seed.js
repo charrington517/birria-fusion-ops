@@ -270,6 +270,31 @@ async function verify() {
     }
   }
 
+
+  // ── Recipe cookbook content checks ─────────────────────────────────────────
+  console.log('\nRecipe cookbook content:');
+  const cookbookChecks = [
+    { id: 1, name: 'Birria Consomme Base', expect_prep: '30 min', expect_cook: '4 hours' },
+    { id: 2, name: 'Quesabirria Assembly', expect_prep: '5 min',  expect_cook: '8 min'   },
+    { id: 3, name: 'Birria Ramen',         expect_prep: '5 min',  expect_cook: '10 min'  },
+    { id: 4, name: 'Birria Torta',         expect_prep: '5 min',  expect_cook: '8 min'   },
+  ];
+  for (const check of cookbookChecks) {
+    const res = await query(
+      'SELECT prep_time, cook_time, instructions FROM recipes WHERE id=$1',
+      [check.id]
+    );
+    const r = res.rows[0];
+    const hasInstr = r && r.instructions && r.instructions.length > 50;
+    const prepOk = r && r.prep_time === check.expect_prep;
+    const cookOk = r && r.cook_time === check.expect_cook;
+    if (hasInstr && prepOk && cookOk) {
+      pass('"' + check.name + '" prep=' + r.prep_time + ' cook=' + r.cook_time + ' instructions=' + r.instructions.length + 'chars');
+    } else {
+      fail('"' + check.name + '"', 'prep=' + (r?.prep_time||'missing') + ' cook=' + (r?.cook_time||'missing') + ' instructions=' + (hasInstr?'ok':'missing'));
+    }
+  }
+
   // ── Summary ───────────────────────────────────────────────────────────────
   console.log(`\n${'─'.repeat(50)}`);
   console.log(`Result: ${passed} passed, ${failed} failed`);

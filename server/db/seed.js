@@ -95,10 +95,30 @@ async function seed() {
 
   // ── Recipes (ALL 4 in one block) ──────────────────────────────────────────
   await insertIfEmpty('recipes', [
-    { name: 'Birria Consomme Base', category: 'Prep',      yield_amount: 12, yield_unit: 'qt',       notes: 'Core broth. Simmer 4hrs minimum.' },
-    { name: 'Quesabirria Assembly', category: 'Service',   yield_amount: 1,  yield_unit: 'plate',    notes: 'Dip tortilla in birria oil, crisp on flat top, fill and fold.' },
-    { name: 'Birria Ramen',         category: 'Signature', yield_amount: 1,  yield_unit: 'bowl',     notes: 'Birria broth ramen with consom\u00e9 base' },
-    { name: 'Birria Torta',         category: 'Signature', yield_amount: 1,  yield_unit: 'sandwich', notes: 'Toasted torta with birria and cheese' },
+    {
+      name: 'Birria Consomme Base', category: 'Prep', yield_amount: 12, yield_unit: 'qt',
+      prep_time: '30 min', cook_time: '4 hours',
+      notes: 'Core broth. Yields 12 qt. Simmer minimum 4 hrs for full flavor development. Salt to taste at end.',
+      instructions: '1. Season chuck roast and beef shank with salt and pepper on all sides.\n2. Heat a large pot over high heat. Sear beef in batches until deep brown, 3-4 min per side. Remove and set aside.\n3. Toast dried guajillo chiles dry in the same pot 30 sec per side. Remove, soak in hot water 10 min.\n4. Blend soaked chiles with 1 cup soaking water, garlic, cumin, oregano until smooth. Strain through fine mesh sieve.\n5. Return beef to pot. Pour chile sauce over top. Add water or stock to cover completely.\n6. Bring to boil, reduce to low simmer. Cover and cook 3.5-4 hours until fall-apart tender.\n7. Remove beef, shred or chop. Reserve the consomé broth.\n8. Skim fat from broth. Season with salt. Reserve fat for dipping tortillas.\n9. Broth keeps refrigerated 5 days or frozen 2 months.'
+    },
+    {
+      name: 'Quesabirria Assembly', category: 'Service', yield_amount: 1, yield_unit: 'plate',
+      prep_time: '5 min', cook_time: '8 min',
+      notes: 'Assembly only — birria meat and consomé must be prepared in advance. Keep broth hot throughout service.',
+      instructions: '1. Heat flat top or cast iron griddle over medium-high heat.\n2. Ladle a small amount of birria fat/oil onto the griddle and spread.\n3. Dip corn tortillas briefly into warm consomé — about 2 seconds per side.\n4. Lay coated tortillas onto hot griddle. They should sizzle immediately.\n5. Add shredded birria meat to one half of each tortilla.\n6. Add shredded Oaxaca cheese over the meat.\n7. Cook until bottom is crispy and cheese begins to melt, 2-3 minutes.\n8. Fold tortilla in half. Press lightly with a spatula.\n9. Flip and cook other side 1-2 minutes until crisp.\n10. Serve 3 tacos with a small cup of hot consomé for dipping.\n11. Garnish with diced white onion and chopped cilantro.'
+    },
+    {
+      name: 'Birria Ramen', category: 'Signature', yield_amount: 1, yield_unit: 'bowl',
+      prep_time: '5 min', cook_time: '10 min',
+      notes: 'Build flavor by ladling consomé hot. Add toppings in order listed for best presentation.',
+      instructions: '1. Bring a pot of water to boil. Cook ramen noodles per package, typically 3 minutes. Drain.\n2. Heat consomé broth in a saucepan until steaming hot. Season to taste.\n3. Warm shredded birria meat in a pan with a splash of consomé to keep it moist.\n4. Place cooked noodles in a serving bowl.\n5. Ladle hot consomé broth over noodles until bowl is about 3/4 full.\n6. Arrange warmed birria meat on top in the center.\n7. Slice a soft-boiled egg in half and place on one side.\n8. Add diced white onion on one side and chopped cilantro on the other.\n9. Serve immediately in a to-go bowl with a lid.'
+    },
+    {
+      name: 'Birria Torta', category: 'Signature', yield_amount: 1, yield_unit: 'sandwich',
+      prep_time: '5 min', cook_time: '8 min',
+      notes: 'Toast the roll until it holds up to the juicy birria without getting soggy. The crunch is key.',
+      instructions: '1. Slice bolillo roll lengthwise. Place cut-side down on a hot griddle.\n2. Toast until cut surface is golden and crisp, 2-3 minutes.\n3. Spread a layer of refried beans on the bottom half of the toasted roll.\n4. Layer shredded Oaxaca cheese over the beans. Allow to melt slightly.\n5. Pile shredded birria meat generously over the cheese.\n6. Drizzle a small spoonful of hot consomé over the meat.\n7. Add sliced jalapeños over the meat.\n8. Top with diced white onion and chopped cilantro.\n9. Cap with top half of roll. Press lightly.\n10. Serve in a to-go container with a small cup of consomé on the side.'
+    },
   ]);
 
   // ── Recipe Ingredients (ALL 29 rows, FKs resolved by name) ───────────────
