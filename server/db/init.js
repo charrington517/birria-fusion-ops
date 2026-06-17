@@ -316,6 +316,20 @@ async function init() {
       ON menu_item_compound_ingredients(menu_item_id);
     CREATE INDEX IF NOT EXISTS idx_mici_compound_ingredient_id
       ON menu_item_compound_ingredients(compound_ingredient_id);
+
+    -- menu_item_ingredients: assembly ingredients owned directly by a menu item
+    CREATE TABLE IF NOT EXISTS menu_item_ingredients (
+      id            SERIAL PRIMARY KEY,
+      menu_item_id  INTEGER NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
+      ingredient_id INTEGER NOT NULL REFERENCES ingredients(id),
+      quantity      NUMERIC NOT NULL DEFAULT 0,
+      unit          TEXT NOT NULL,
+      created_at    TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_mii_menu_item_id
+      ON menu_item_ingredients(menu_item_id);
+    CREATE INDEX IF NOT EXISTS idx_mii_ingredient_id
+      ON menu_item_ingredients(ingredient_id);
     -- inventory_transactions: refs inventory + sales_orders (both exist above)
     CREATE TABLE IF NOT EXISTS inventory_transactions (
       id             SERIAL PRIMARY KEY,

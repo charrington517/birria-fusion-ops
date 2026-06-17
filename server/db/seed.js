@@ -322,6 +322,57 @@ async function seed() {
     console.log('Seeded menu_item_compound_ingredients: 4 rows (Phase 1)');
   }
 
+
+  // ── Menu Item Ingredients (Architecture B assembly rows) ──────────────────
+  const miiCount = await query('SELECT COUNT(*)::int AS count FROM menu_item_ingredients');
+  if (miiCount.rows[0].count === 0) {
+    const tacoId  = await lookupId('menu_items', 'name', 'Quesabirria Tacos');
+    const ramenId = await lookupId('menu_items', 'name', 'Birria Ramen');
+    const tortaId = await lookupId('menu_items', 'name', 'Birria Torta');
+
+    const iOaxaca    = await lookupId('ingredients', 'name', 'Oaxaca Cheese');
+    const iTortilla  = await lookupId('ingredients', 'name', 'Corn Tortilla');
+    const iBowl      = await lookupId('ingredients', 'name', 'To-Go Bowl');
+    const iOnion     = await lookupId('ingredients', 'name', 'White Onion');
+    const iCilantro  = await lookupId('ingredients', 'name', 'Cilantro');
+    const iNoodles   = await lookupId('ingredients', 'name', 'Ramen Noodles');
+    const iEgg       = await lookupId('ingredients', 'name', 'Egg');
+    const iBolillo   = await lookupId('ingredients', 'name', 'Bolillo Roll');
+    const iBeans     = await lookupId('ingredients', 'name', 'Refried Beans');
+    const iJalap     = await lookupId('ingredients', 'name', 'Jalape\u00f1o Slice');
+
+    const miiRows = [
+      // Quesabirria Tacos (5)
+      { menu_item_id: tacoId,  ingredient_id: iOaxaca,   quantity: 2,    unit: 'oz'      },
+      { menu_item_id: tacoId,  ingredient_id: iTortilla, quantity: 3,    unit: 'each'    },
+      { menu_item_id: tacoId,  ingredient_id: iBowl,     quantity: 1,    unit: 'each'    },
+      { menu_item_id: tacoId,  ingredient_id: iOnion,    quantity: 0.1,  unit: 'each'    },
+      { menu_item_id: tacoId,  ingredient_id: iCilantro, quantity: 0.05, unit: 'bunch'   },
+      // Birria Ramen (5)
+      { menu_item_id: ramenId, ingredient_id: iNoodles,  quantity: 1.0,  unit: 'serving' },
+      { menu_item_id: ramenId, ingredient_id: iBowl,     quantity: 1.0,  unit: 'each'    },
+      { menu_item_id: ramenId, ingredient_id: iEgg,      quantity: 1.0,  unit: 'each'    },
+      { menu_item_id: ramenId, ingredient_id: iOnion,    quantity: 0.1,  unit: 'each'    },
+      { menu_item_id: ramenId, ingredient_id: iCilantro, quantity: 0.05, unit: 'bunch'   },
+      // Birria Torta (7)
+      { menu_item_id: tortaId, ingredient_id: iOaxaca,   quantity: 2.0,  unit: 'oz'      },
+      { menu_item_id: tortaId, ingredient_id: iBolillo,  quantity: 1.0,  unit: 'each'    },
+      { menu_item_id: tortaId, ingredient_id: iBowl,     quantity: 1.0,  unit: 'each'    },
+      { menu_item_id: tortaId, ingredient_id: iBeans,    quantity: 2.0,  unit: 'oz'      },
+      { menu_item_id: tortaId, ingredient_id: iOnion,    quantity: 0.1,  unit: 'each'    },
+      { menu_item_id: tortaId, ingredient_id: iJalap,    quantity: 2.0,  unit: 'slice'   },
+      { menu_item_id: tortaId, ingredient_id: iCilantro, quantity: 0.05, unit: 'bunch'   },
+    ];
+    for (const row of miiRows) {
+      await query(
+        `INSERT INTO menu_item_ingredients (menu_item_id, ingredient_id, quantity, unit)
+         VALUES ($1, $2, $3, $4)`,
+        [row.menu_item_id, row.ingredient_id, row.quantity, row.unit]
+      );
+    }
+    console.log('Seeded menu_item_ingredients: 17 rows');
+  }
+
   await query('INSERT INTO activity (message) VALUES ($1)', ['Production AI foundation seeded']);
   console.log('Seed complete. Login: admin/admin123 (or .env overrides)');
 }

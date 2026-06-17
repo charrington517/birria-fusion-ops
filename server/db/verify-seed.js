@@ -19,6 +19,7 @@ const EXPECTED = {
   compound_ingredients:             2,
   compound_ingredient_components:   6,
   menu_item_compound_ingredients:   4,
+  menu_item_ingredients:            17,
 };
 
 // Expected FK linkages verified by name
@@ -242,6 +243,30 @@ async function verify() {
       pass('"Birria Consom\u00e9 Base" XOR constraint satisfied');
     } else {
       fail('"Birria Consom\u00e9 Base" XOR constraint', xorRes.rows[0].bad + ' rows violate rule');
+    }
+  }
+
+
+  // ── menu_item_ingredients subtotal checks ─────────────────────────────────
+  console.log('\nMenu item ingredient subtotals:');
+  const miiItems = [
+    { id: 1, name: 'Quesabirria Tacos', expected_subtotal: 1.7357 },
+    { id: 2, name: 'Birria Ramen',      expected_subtotal: 1.6425 },
+    { id: 3, name: 'Birria Torta',      expected_subtotal: 2.2925 },
+  ];
+  for (const item of miiItems) {
+    const res = await query(
+      `SELECT ROUND(SUM((i.cost / NULLIF(i.servings_per_purchase,0)) * mii.quantity)::numeric, 4) AS subtotal
+       FROM menu_item_ingredients mii
+       JOIN ingredients i ON i.id = mii.ingredient_id
+       WHERE mii.menu_item_id = $1`,
+      [item.id]
+    );
+    const actual = Number(res.rows[0].subtotal);
+    if (Math.abs(actual - item.expected_subtotal) < 0.001) {
+      pass('"' + item.name + '" mii subtotal: $' + actual);
+    } else {
+      fail('"' + item.name + '" mii subtotal', 'expected $' + item.expected_subtotal + ', got $' + actual);
     }
   }
 

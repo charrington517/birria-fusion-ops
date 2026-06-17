@@ -51,6 +51,39 @@ function marginCategory(pct) {
   return 'Low';
 }
 
+
+// ── Menu Item Direct Ingredient Costing ─────────────────────────────────────
+
+async function calculateMenuIngredientCost(menuItemId) {
+  const rows = await query(
+    `SELECT mii.quantity, mii.unit,
+            i.name AS ingredient_name,
+            i.cost AS purchase_cost,
+            COALESCE(i.servings_per_purchase, 1) AS spp
+     FROM menu_item_ingredients mii
+     JOIN ingredients i ON i.id = mii.ingredient_id
+     WHERE mii.menu_item_id = $1`,
+    [menuItemId]
+  );
+  const total = rows.rows.reduce((sum, r) => {
+    const cps = Number(r.purchase_cost) / (Number(r.spp) || 1);
+    return sum + cps * Number(r.quantity);
+  }, 0);
+  return {
+    total: Number(total.toFixed(4)),
+    lines: rows.rows.map(r => {
+      const cps = Number(r.purchase_cost) / (Number(r.spp) || 1);
+      return {
+        ingredient: r.ingredient_name,
+        quantity:   Number(r.quantity),
+        unit:       r.unit,
+        cost_per_serving: Number(cps.toFixed(4)),
+        line_cost:  Number((cps * Number(r.quantity)).toFixed(4))
+      };
+    })
+  };
+}
+
 async function calculateMenuItemCost(menuItemId) {
   const itemResult = await query('SELECT * FROM menu_items WHERE id=$1', [menuItemId]);
   const item = itemResult.rows[0];
@@ -58,11 +91,29 @@ async function calculateMenuItemCost(menuItemId) {
 
   const menu_price = Number(item.price);
 
-  // ── Regular ingredient cost (via recipe) ──
+  // ── Regular ingredient cost ──────────────────────────────────────────────
+  // If menu_item_ingredients rows exist, use them (Architecture B).
+  // Otherwise fall back to calculateRecipeCost() for backward compat.
   let recipe_id = null, recipe_name = null, ingredient_cost = 0;
   let ingredient_lines = [];
 
-  if (item.recipe_id) {
+  const miiCheck = await query(
+    'SELECT COUNT(*)::int AS count FROM menu_item_ingredients WHERE menu_item_id=$1',
+    [menuItemId]
+  );
+  const hasMII = miiCheck.rows[0].count > 0;
+
+  if (hasMII) {
+    // Architecture B path: read from menu_item_ingredients
+    const mii = await calculateMenuIngredientCost(menuItemId);
+    ingredient_cost = mii.total;
+    ingredient_lines = mii.lines;
+    if (item.recipe_id) {
+      const rr = await query('SELECT id, name FROM recipes WHERE id=$1', [item.recipe_id]);
+      if (rr.rows.length) { recipe_id = rr.rows[0].id; recipe_name = rr.rows[0].name; }
+    }
+  } else if (item.recipe_id) {
+    // Legacy path: read from recipe_ingredients via recipe
     const r = await calculateRecipeCost(item.recipe_id);
     recipe_id = r.recipe_id;
     recipe_name = r.recipe_name;
@@ -100,9 +151,14 @@ async function calculateMenuItemCost(menuItemId) {
   }
 
   const total_cost = ingredient_cost + compound_cost;
-  const cost_source = ciRows.rows.length > 0
-    ? (item.recipe_id ? 'recipe+compound' : 'compound')
-    : (item.recipe_id ? 'recipe' : 'manual');
+  const cost_source = (() => {
+    const hasComp = ciRows.rows.length > 0;
+    if (hasMII && hasComp) return 'mii+compound';
+    if (hasMII)            return 'mii';
+    if (hasComp)           return 'compound';
+    if (item.recipe_id)    return 'recipe';
+    return 'manual';
+  })();
 
   const gross_profit = Number((menu_price - total_cost).toFixed(2));
   const gross_margin_percent = menu_price > 0
@@ -219,4 +275,4 @@ async function calculateCompoundCost(compoundId, visited = new Set()) {
   };
 }
 
-module.exports = { calculateRecipeCost, calculateMenuItemCost, calculateAllMenuCosts, marginCategory, calculateCompoundCost };
+module.exports = { calculateRecipeCost, calculateMenuItemCost, calculateMenuIngredientCost, calculateAllMenuCosts, marginCategory, calculateCompoundCost };

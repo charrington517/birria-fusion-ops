@@ -131,7 +131,7 @@ function App(){
         {page==='ingredients' && <IngredientsPage ingredients={data} inventory={overview.data.inventory||[]} api={auth.api} refresh={refresh}/>}
         {page==='compounds'   && <CompoundsPage compounds={data} ingredients={overview.data.ingredients||[]} allCompounds={overview.data.compounds||[]} api={auth.api} refresh={refresh}/>}
         {page==='recipes'     && <RecipesPage recipes={data} ingredients={overview.data.ingredients||[]} api={auth.api} refresh={refresh}/>}
-        {page==='menu'        && <MenuPage menuItems={data} recipes={overview.data.recipes||[]} allCompounds={overview.data.compounds||[]} api={auth.api} refresh={refresh}/>}
+        {page==='menu'        && <MenuPage menuItems={data} recipes={overview.data.recipes||[]} allCompounds={overview.data.compounds||[]} ingredients={overview.data.ingredients||[]} api={auth.api} refresh={refresh}/>}
         {page==='events'      && <EventsPage events={data} menuItems={overview.data.menu||[]} api={auth.api} refresh={refresh} setModal={setModal} remove={remove}/>}
         {page!=='today'&&page!=='ai'&&page!=='inventory'&&page!=='ingredients'&&page!=='compounds'&&page!=='recipes'&&page!=='menu'&&page!=='events'&&
           <Collection page={page} data={data} setModal={setModal} remove={remove}/>}
@@ -617,7 +617,7 @@ function RecipeModal({recipe,ingredients,api,onSave,onClose}){
 }
 
 // ── Menu Page ──────────────────────────────────────────────────────────────────
-function MenuPage({menuItems,recipes,allCompounds,api,refresh}){
+function MenuPage({menuItems,recipes,allCompounds,ingredients,api,refresh}){
   const [costs,setCosts]=useState({});
   const [editing,setEditing]=useState(null);
 
@@ -652,7 +652,7 @@ function MenuPage({menuItems,recipes,allCompounds,api,refresh}){
         ))}
       </div>
     </div>)}
-    {editing!==null&&<MenuItemModal item={editing} recipes={recipes} allCompounds={allCompounds} api={api} onSave={save} onClose={()=>setEditing(null)}/>}
+    {editing!==null&&<MenuItemModal item={editing} recipes={recipes} allCompounds={allCompounds} ingredients={overview?.data?.ingredients||[]} api={api} onSave={save} onClose={()=>setEditing(null)}/>}
   </>;
 }
 
@@ -738,26 +738,39 @@ function MenuCard({item, cost, onEdit, onDuplicate, onDelete}){
     </div>}
   </div>;
 }
-function MenuItemModal({item,recipes,allCompounds,api,onSave,onClose}){
+function MenuItemModal({item,recipes,allCompounds,ingredients,api,onSave,onClose}){
   const isNew=!item.id;
   const [form,setForm]=useState({id:item.id,name:item.name||'',category:item.category||'Entree',price:item.price||'',description:item.description||'',prep_notes:item.prep_notes||'',active:item.active!==false,recipe_id:item.recipe_id||'',portions:item.portions||1});
-  const [compRows, setCompRows] = useState([]);
+  const [ingRows,  setIngRows]   = useState([]);
+  const [compRows, setCompRows]  = useState([]);
   const [loadingComp, setLoadingComp] = useState(!isNew);
   function set(k,v){setForm(f=>({...f,[k]:v}));}
 
   useEffect(()=>{
     if(!item.id){ setLoadingComp(false); return; }
-    api(`/api/menu-item-compound-ingredients?menu_item_id=${item.id}`)
-      .then(data=>{ setCompRows(data.map(r=>({id:r.id,compound_ingredient_id:r.compound_ingredient_id,quantity:r.quantity,unit:r.unit}))); setLoadingComp(false); })
-      .catch(()=>setLoadingComp(false));
+    Promise.all([
+      api(`/api/menu-item-ingredients?menu_item_id=${item.id}`),
+      api(`/api/menu-item-compound-ingredients?menu_item_id=${item.id}`)
+    ]).then(([ingData, compData])=>{
+      setIngRows(ingData.map(r=>({id:r.id,ingredient_id:r.ingredient_id,quantity:r.quantity,unit:r.unit})));
+      setCompRows(compData.map(r=>({id:r.id,compound_ingredient_id:r.compound_ingredient_id,quantity:r.quantity,unit:r.unit})));
+      setLoadingComp(false);
+    }).catch(()=>setLoadingComp(false));
   },[]);
 
   async function save(){
     const saved = await api(`/api/menu${form.id?`/${form.id}`:''}`,{method:form.id?'PUT':'POST',body:JSON.stringify(form)});
     const menuId = form.id || saved.id;
-    // sync compound rows: delete existing, re-insert
-    const existing = await api(`/api/menu-item-compound-ingredients?menu_item_id=${menuId}`);
-    for(const r of existing) await api(`/api/menu-item-compound-ingredients/${r.id}`,{method:'DELETE'}).catch(()=>{});
+    // sync ingredient rows
+    const existingIng = await api(`/api/menu-item-ingredients?menu_item_id=${menuId}`);
+    for(const r of existingIng) await api(`/api/menu-item-ingredients/${r.id}`,{method:'DELETE'}).catch(()=>{});
+    for(const row of ingRows){
+      if(!row.ingredient_id||!row.quantity||Number(row.quantity)<=0) continue;
+      await api('/api/menu-item-ingredients',{method:'POST',body:JSON.stringify({menu_item_id:menuId,ingredient_id:Number(row.ingredient_id),quantity:Number(row.quantity),unit:row.unit})});
+    }
+    // sync compound rows
+    const existingComp = await api(`/api/menu-item-compound-ingredients?menu_item_id=${menuId}`);
+    for(const r of existingComp) await api(`/api/menu-item-compound-ingredients/${r.id}`,{method:'DELETE'}).catch(()=>{});
     for(const row of compRows){
       if(!row.compound_ingredient_id||!row.quantity||Number(row.quantity)<=0) continue;
       await api('/api/menu-item-compound-ingredients',{method:'POST',body:JSON.stringify({menu_item_id:menuId,compound_ingredient_id:Number(row.compound_ingredient_id),quantity:Number(row.quantity),unit:row.unit})});
@@ -765,9 +778,21 @@ function MenuItemModal({item,recipes,allCompounds,api,onSave,onClose}){
     onSave(form);
   }
 
+  function addIngRow(){ setIngRows(r=>[...r,{ingredient_id:'',quantity:1,unit:'each'}]); }
+  function updateIng(i,k,v){ setIngRows(r=>r.map((row,idx)=>idx===i?{...row,[k]:v}:row)); }
+  function removeIng(i){ setIngRows(r=>r.filter((_,idx)=>idx!==i)); }
+
   function addCompRow(){ setCompRows(r=>[...r,{compound_ingredient_id:'',quantity:1,unit:''}]); }
   function updateComp(i,k,v){ setCompRows(r=>r.map((row,idx)=>idx===i?{...row,[k]:v}:row)); }
   function removeComp(i){ setCompRows(r=>r.filter((_,idx)=>idx!==i)); }
+
+  // live ingredient subtotal
+  const ingSubtotal = ingRows.reduce((sum,row)=>{
+    const ing=ingredients.find(ig=>ig.id===Number(row.ingredient_id));
+    if(!ing) return sum;
+    const spp=Number(ing.servings_per_purchase)||1;
+    return sum+(Number(ing.cost)/spp)*(Number(row.quantity)||0);
+  },0);
 
   if(loadingComp) return <div className="modal"><div className="modal-card"><p className="muted">Loading…</p></div></div>;
 
@@ -788,6 +813,28 @@ function MenuItemModal({item,recipes,allCompounds,api,onSave,onClose}){
           <option value="">— no recipe —</option>{recipes.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
       </label>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:4}}>
+        <div style={{fontWeight:900,fontSize:13}}>Ingredients</div>
+        <button onClick={addIngRow} style={{padding:'5px 10px',fontSize:12}}>+ Add</button>
+      </div>
+      {ingRows.length===0 && <p className="muted" style={{fontSize:12,margin:'4px 0'}}>No ingredients assigned.</p>}
+      {ingRows.map((row,i)=>{
+        const ing=ingredients.find(ig=>ig.id===Number(row.ingredient_id));
+        const spp=ing?(Number(ing.servings_per_purchase)||1):1;
+        const lc=ing?((Number(ing.cost)/spp)*(Number(row.quantity)||0)):0;
+        return <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 70px 70px 50px 28px',gap:8,alignItems:'center',marginBottom:6}}>
+          <select value={row.ingredient_id} onChange={e=>{ updateIng(i,'ingredient_id',e.target.value); const ig=ingredients.find(x=>x.id===Number(e.target.value)); if(ig) updateIng(i,'unit',ig.unit); }} style={selectStyle}>
+            <option value="">Select ingredient…</option>
+            {ingredients.map(ig=><option key={ig.id} value={ig.id}>{ig.name} ({ig.unit})</option>)}
+          </select>
+          <input type="number" step="0.01" min="0.01" value={row.quantity} onChange={e=>updateIng(i,'quantity',e.target.value)} style={{borderRadius:10,background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',padding:'8px'}}/>
+          <input value={row.unit||ing?.unit||''} onChange={e=>updateIng(i,'unit',e.target.value)} placeholder="unit" style={{borderRadius:10,background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',padding:'8px'}}/>
+          <div style={{fontSize:11,color:'#fca5a5',textAlign:'right'}}>{lc>0?`$${lc.toFixed(2)}`:''}</div>
+          <button onClick={()=>removeIng(i)} style={{padding:'4px 8px',background:'rgba(239,68,68,.3)'}}>×</button>
+        </div>;
+      })}
+      {ingRows.length>0 && <div className="muted" style={{fontSize:12,textAlign:'right',marginBottom:4}}>Ingredient subtotal: <strong style={{color:'#fca5a5'}}>${ingSubtotal.toFixed(4)}</strong></div>}
+
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:4}}>
         <div style={{fontWeight:900,fontSize:13}}>Compound Ingredients</div>
         <button onClick={addCompRow} style={{padding:'5px 10px',fontSize:12}}>+ Add</button>

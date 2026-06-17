@@ -84,6 +84,31 @@ router.get('/menu-item-compound-ingredients', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// menu-item-ingredients with optional menu_item_id filter
+router.get('/menu-item-ingredients', async (req, res, next) => {
+  try {
+    const { menu_item_id } = req.query;
+    const result = menu_item_id
+      ? await query(
+          `SELECT mii.*, i.name AS ingredient_name,
+                  i.cost AS purchase_cost,
+                  COALESCE(i.servings_per_purchase,1) AS spp,
+                  ROUND(i.cost / NULLIF(i.servings_per_purchase,1) * mii.quantity, 4) AS line_cost
+           FROM menu_item_ingredients mii
+           JOIN ingredients i ON i.id = mii.ingredient_id
+           WHERE mii.menu_item_id = $1 ORDER BY mii.id`,
+          [menu_item_id]
+        )
+      : await query(
+          `SELECT mii.*, i.name AS ingredient_name
+           FROM menu_item_ingredients mii
+           JOIN ingredients i ON i.id = mii.ingredient_id
+           ORDER BY mii.id`
+        );
+    res.json(result.rows);
+  } catch (err) { next(err); }
+});
+
 Object.keys(crud.tableMap).forEach(collection => {
   router.get(`/${collection}`, async (req, res, next) => {
     try { res.json(await crud.list(collection)); } catch (err) { next(err); }
