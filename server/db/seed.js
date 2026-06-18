@@ -317,10 +317,11 @@ async function seed() {
   }
 
 
-  // ── Menu Item Compound Ingredients (Phase 1: Tacos + Torta) ──────────────
+  // ── Menu Item Compound Ingredients (Phase 1+3: Tacos + Ramen + Torta) ────
   const miciCount = await query('SELECT COUNT(*)::int AS count FROM menu_item_compound_ingredients');
   if (miciCount.rows[0].count === 0) {
     const tacoId  = await lookupId('menu_items', 'name', 'Quesabirria Tacos');
+    const ramenId = await lookupId('menu_items', 'name', 'Birria Ramen');
     const tortaId = await lookupId('menu_items', 'name', 'Birria Torta');
     const bmId    = await lookupId('compound_ingredients', 'name', 'Birria Meat');
     const cbId    = await lookupId('compound_ingredients', 'name', 'Birria Consom\u00e9 Base');
@@ -328,6 +329,8 @@ async function seed() {
     const miciRows = [
       { menu_item_id: tacoId,  compound_ingredient_id: bmId, quantity: 0.25, unit: 'lb' },
       { menu_item_id: tacoId,  compound_ingredient_id: cbId, quantity: 0.25, unit: 'qt' },
+      { menu_item_id: ramenId, compound_ingredient_id: bmId, quantity: 0.25, unit: 'lb' },
+      { menu_item_id: ramenId, compound_ingredient_id: cbId, quantity: 0.75, unit: 'qt' },
       { menu_item_id: tortaId, compound_ingredient_id: bmId, quantity: 0.25, unit: 'lb' },
       { menu_item_id: tortaId, compound_ingredient_id: cbId, quantity: 0.25, unit: 'qt' },
     ];
@@ -339,7 +342,7 @@ async function seed() {
         [row.menu_item_id, row.compound_ingredient_id, row.quantity, row.unit]
       );
     }
-    console.log('Seeded menu_item_compound_ingredients: 4 rows (Phase 1)');
+    console.log('Seeded menu_item_compound_ingredients: 6 rows (Phase 1+3)');
   }
 
 

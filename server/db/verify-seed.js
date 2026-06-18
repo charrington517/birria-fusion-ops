@@ -18,7 +18,7 @@ const EXPECTED = {
   expenses:            3,
   compound_ingredients:             2,
   compound_ingredient_components:   6,
-  menu_item_compound_ingredients:   4,
+  menu_item_compound_ingredients:   6,
   menu_item_ingredients:            17,
 };
 
@@ -293,6 +293,51 @@ async function verify() {
     } else {
       fail('"' + check.name + '"', 'prep=' + (r?.prep_time||'missing') + ' cook=' + (r?.cook_time||'missing') + ' instructions=' + (hasInstr?'ok':'missing'));
     }
+  }
+
+
+  // ── Ramen Phase 3 compound rows ────────────────────────────────────────────
+  console.log('\nRamen Phase 3 compound rows:');
+  const ramenMici = await query(
+    `SELECT mici.compound_ingredient_id, ci.name, mici.quantity, mici.unit
+     FROM menu_item_compound_ingredients mici
+     JOIN compound_ingredients ci ON ci.id = mici.compound_ingredient_id
+     WHERE mici.menu_item_id = 2 ORDER BY mici.compound_ingredient_id`,
+    []
+  );
+  if (ramenMici.rows.length !== 2) {
+    fail('"Birria Ramen" compound rows', 'expected 2, got ' + ramenMici.rows.length);
+  } else {
+    const bm = ramenMici.rows.find(r => r.name === 'Birria Meat');
+    const cb = ramenMici.rows.find(r => r.name.includes('Consom'));
+    if (bm && Number(bm.quantity) === 0.25 && bm.unit === 'lb') {
+      pass('"Birria Ramen" Birria Meat: ' + bm.quantity + ' ' + bm.unit);
+    } else {
+      fail('"Birria Ramen" Birria Meat', 'expected 0.25 lb, got ' + (bm?.quantity||'missing') + ' ' + (bm?.unit||''));
+    }
+    if (cb && Number(cb.quantity) === 0.75 && cb.unit === 'qt') {
+      pass('"Birria Ramen" Consomé Base: ' + cb.quantity + ' ' + cb.unit);
+    } else {
+      fail('"Birria Ramen" Consomé Base', 'expected 0.75 qt, got ' + (cb?.quantity||'missing') + ' ' + (cb?.unit||''));
+    }
+  }
+
+  // Ramen total cost sanity
+  const ramenCostRes = await query(
+    `SELECT
+       ROUND(SUM((i.cost / NULLIF(i.servings_per_purchase,0)) * mii.quantity)::numeric, 4) AS ing_cost
+     FROM menu_item_ingredients mii
+     JOIN ingredients i ON i.id = mii.ingredient_id
+     WHERE mii.menu_item_id = 2`,
+    []
+  );
+  const ingCost = Number(ramenCostRes.rows[0].ing_cost);
+  const compCost = 0.25 * 8.525 + 0.75 * 5.4125;
+  const totalCost = ingCost + compCost;
+  if (Math.abs(totalCost - 7.8331) < 0.01) {
+    pass('"Birria Ramen" total cost: $' + totalCost.toFixed(4) + ' (ing $' + ingCost + ' + comp $' + compCost.toFixed(4) + ')');
+  } else {
+    fail('"Birria Ramen" total cost', 'expected ~$7.83, got $' + totalCost.toFixed(4));
   }
 
   // ── Summary ───────────────────────────────────────────────────────────────
