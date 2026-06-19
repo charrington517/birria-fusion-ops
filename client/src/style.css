@@ -15,3 +15,6 @@ select option{background:#141417;color:white}
 .sidebar::-webkit-scrollbar-track,.main::-webkit-scrollbar-track,.modal-card::-webkit-scrollbar-track{background:rgba(255,255,255,.04);border-radius:999px}
 .sidebar::-webkit-scrollbar-thumb,.main::-webkit-scrollbar-thumb,.modal-card::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:999px}
 .sidebar::-webkit-scrollbar-thumb:hover,.main::-webkit-scrollbar-thumb:hover,.modal-card::-webkit-scrollbar-thumb:hover{background:rgba(249,115,22,.40)}
+
+button.danger{background:rgba(239,68,68,.25);color:#fca5a5}
+button.danger:hover{background:rgba(239,68,68,.45)}

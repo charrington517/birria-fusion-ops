@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Boxes, CalendarDays, ChefHat, ClipboardList, Home, Users, Wrench, Truck, Brain, ShieldCheck, LogOut, BookOpen, FlaskConical } from 'lucide-react';
 import './style.css';
 
+const todayItem = ['today', Home, 'Today'];
 const navGroups = [
   { label: 'Kitchen', items: [
     ['menu',       ChefHat,      'Menu'],
@@ -23,13 +24,12 @@ const navGroups = [
     ['tasks',      ShieldCheck,  'Tasks'],
   ]},
   { label: 'System', items: [
-    ['today',      Home,         'Today'],
     ['ai',         Brain,        'AI Copilot'],
     ['playbook',   Brain,        'Playbook'],
     ['activity',   ClipboardList,'Activity'],
   ]},
 ];
-const nav = navGroups.flatMap(g => g.items);
+const nav = [todayItem, ...navGroups.flatMap(g => g.items)];
 
 const INV_CATEGORIES  = ['Food','Disposables','Supplies','Equipment','Other'];
 const MENU_CATEGORIES = ['Entree','Appetizer','Side','Beverage','Dessert','Sauce','Signature','Fusion','Sandwich'];
@@ -111,7 +111,7 @@ function App(){
   if(!auth.token) return <Login login={auth.login}/>;
   if(!overview)  return <div className="login"><div className="card">Loading...</div></div>;
 
-  const VERSION='v0.4.0';
+  const VERSION='v0.5.1';
   const title=nav.find(x=>x[0]===page)?.[2]||'TruckFlow Ops';
   const data=overview.data[page]||[];
 
@@ -129,6 +129,8 @@ function App(){
   return <div className="app">
     <aside className="sidebar">
       <div className="brand"><div className="logo">TF</div><div><h1>TruckFlow</h1><p>Operations Intelligence</p></div></div>
+  {(() => { const [id,Icon,label]=todayItem; return <button key='today' onClick={()=>setPage('today')} className={`navbtn ${page==='today'?'active':''}`} style={{marginBottom:8}}><Icon size={18}/>{label}</button>; })()}
+      <div style={{borderBottom:'1px solid rgba(255,255,255,.07)',margin:'4px 0 2px'}}/>
       {navGroups.map(group=><div key={group.label} style={{marginTop:18}}>
         <div style={{fontSize:10,fontWeight:950,letterSpacing:'0.14em',textTransform:'uppercase',color:'#52525b',marginBottom:6,paddingLeft:4}}>{group.label}</div>
         {group.items.map(([id,Icon,label])=><button key={id} onClick={()=>setPage(id)} className={`navbtn ${page===id?'active':''}`}><Icon size={18}/>{label}</button>)}
@@ -223,7 +225,7 @@ function CompoundsPage({compounds, ingredients, allCompounds, api, refresh}){
 
           <div className="actions" style={{marginTop:12}}>
             <button onClick={()=>setEditing(ci)}>Edit</button>
-            <button onClick={()=>del(ci.id)}>Delete</button>
+            <button className="danger" onClick={()=>del(ci.id)}>Delete</button>
           </div>
         </div>;
       })}
@@ -449,7 +451,7 @@ function InventoryPage({items, api, refresh}){
               <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Category</div><div>{item.category||'—'}</div></div>
             </div>
             {item.supplier&&<p className="muted" style={{fontSize:12,marginTop:6}}>Supplier: {item.supplier}</p>}
-            <div className="actions" style={{marginTop:10}}><button onClick={()=>setEditing(item)}>Edit</button><button onClick={()=>del(item.id)}>Delete</button></div>
+            <div className="actions" style={{marginTop:10}}><button onClick={()=>setEditing(item)}>Edit</button><button className="danger" onClick={()=>del(item.id)}>Delete</button></div>
           </div>;
         })}
       </div>
@@ -512,7 +514,7 @@ function IngredientsPage({ingredients,inventory,api,refresh}){
             <div className="profit-row"><span className="muted">Cost Per Serving</span><span style={{color:'#86efac',fontWeight:900}}>{money(cps)} / {ing.unit}</span></div>
           </div>
           {ing.notes&&<p className="muted" style={{fontSize:12,marginTop:6}}>{ing.notes}</p>}
-          <div className="actions" style={{marginTop:10}}><button onClick={()=>setEditing(ing)}>Edit</button><button onClick={()=>del(ing.id)}>Delete</button></div>
+          <div className="actions" style={{marginTop:10}}><button onClick={()=>setEditing(ing)}>Edit</button><button className="danger" onClick={()=>del(ing.id)}>Delete</button></div>
         </div>;
       })}
     </div>
@@ -568,7 +570,7 @@ function RecipesPage({recipes,ingredients,api,refresh}){
 
   return <>
     <div className="card" style={{marginBottom:18,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-      <div><h3>Recipe Book</h3><p className="muted">{recipes.length} recipes</p></div>
+      <div><h3>Recipes</h3><p className="muted">{recipes.length} recipes</p></div>
       <button className="primary" onClick={()=>setEditing({riRows:[]})}>Add Recipe</button>
     </div>
     <div className="grid cards">
@@ -632,7 +634,7 @@ function RecipeCard({recipe, ingredients, onEdit, onDelete}){
 
       <div className="actions" style={{marginTop:12}}>
         <button onClick={e=>{e.stopPropagation();onEdit();}}>Edit</button>
-        <button onClick={e=>{e.stopPropagation();onDelete();}}>Delete</button>
+        <button className="danger" onClick={e=>{e.stopPropagation();onDelete();}}>Delete</button>
       </div>
     </div>}
   </div>;
@@ -820,7 +822,7 @@ function MenuCard({item, cost, onEdit, onDuplicate, onDelete}){
       <div className="actions" style={{marginTop:10,flexWrap:'wrap'}}>
         <button onClick={e=>{e.stopPropagation();onEdit();}}>Edit</button>
         <button onClick={e=>{e.stopPropagation();onDuplicate();}}>Duplicate</button>
-        <button onClick={e=>{e.stopPropagation();onDelete();}}>Delete</button>
+        <button className="danger" onClick={e=>{e.stopPropagation();onDelete();}}>Delete</button>
       </div>
     </div>}
   </div>;
@@ -1012,7 +1014,7 @@ function EventCard({event,menuItems,api,refresh,setModal,remove}){
       <button onClick={loadProfit} disabled={profitLoading}>{profitLoading?'Loading…':profitOpen?'Hide Profit':'View Profit'}</button>
       <button className="primary" onClick={()=>setSaleOpen(true)}>Add Sale</button>
       <button onClick={()=>setModal({collection:'events',item:event})}>Edit</button>
-      <button onClick={()=>remove('events',event.id)}>Delete</button>
+      <button className="danger" onClick={()=>remove('events',event.id)}>Delete</button>
     </div>
     {profitOpen&&profit&&<ProfitPanel profit={profit}/>}
     {saleOpen&&<SaleModal event={event} menuItems={menuItems} api={api} onClose={()=>setSaleOpen(false)} onSaved={afterSale}/>}
@@ -1035,7 +1037,7 @@ function SaleResult({result,onClose,onAnother}){const {order,consumption}=result
 // ── Generic Collection ─────────────────────────────────────────────────────────
 function labelFor(page,item){return item.name||item.title||item.client||item.id;}
 function descFor(page,item){if(page==='catering') return `${item.status} · ${String(item.date||'').slice(0,10)} · $${Number(item.value||0).toLocaleString()} · ${item.location||''}`; if(page==='staff') return `${item.role} · ${item.status} · ${item.hours||0} hours`; if(page==='equipment') return `${item.status} · ${item.location||''}`; return item.category||item.status||item.notes||'';}
-function Collection({page,data,setModal,remove}){return <><div className="card" style={{marginBottom:18,display:'flex',justifyContent:'space-between',gap:12,alignItems:'center'}}><div><h3>{page}</h3><p className="muted">{data.length} records</p></div>{fields[page]&&<button className="primary" onClick={()=>setModal({collection:page,item:{}})}>Add</button>}</div><div className="grid cards">{data.map(item=><div className="card" key={item.id}><h3>{labelFor(page,item)}</h3><p className="muted">{descFor(page,item)}</p><p className="muted">{item.description||item.notes||item.content||''}</p><div className="actions"><button onClick={()=>setModal({collection:page,item})}>Edit</button><button onClick={()=>remove(page,item.id)}>Delete</button></div></div>)}</div></>;}
+function Collection({page,data,setModal,remove}){return <><div className="card" style={{marginBottom:18,display:'flex',justifyContent:'space-between',gap:12,alignItems:'center'}}><div><h3>{nav.find(x=>x[0]===page)?.[2]||page}</h3><p className="muted">{data.length} records</p></div>{fields[page]&&<button className="primary" onClick={()=>setModal({collection:page,item:{}})}>Add</button>}</div><div className="grid cards">{data.map(item=><div className="card" key={item.id}><h3>{labelFor(page,item)}</h3><p className="muted">{descFor(page,item)}</p><p className="muted">{item.description||item.notes||item.content||''}</p><div className="actions"><button onClick={()=>setModal({collection:page,item})}>Edit</button><button className="danger" onClick={()=>remove(page,item.id)}>Delete</button></div></div>)}</div></>;}
 function EditModal({modal,save,close}){const [form,setForm]=useState(modal.item||{});const flds=fields[modal.collection]||[];function set(k,v){setForm(x=>({...x,[k]:v}));}return <div className="modal"><div className="modal-card"><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><h3>{modal.item.id?'Edit':'Add'} {modal.collection}</h3><button onClick={close}>×</button></div><div className="form">{flds.map(k=><label key={k}><div className="muted">{k.replaceAll('_',' ')}</div>{['notes','description','content','prep_notes'].includes(k)?<textarea value={form[k]||''} onChange={e=>set(k,e.target.value)}/>:<input value={form[k]??''} onChange={e=>set(k,e.target.value)}/>}</label>)}<button className="primary" onClick={()=>save(modal.collection,form,modal.item.id)}>Save</button></div></div></div>;}
 
 // ── Today ──────────────────────────────────────────────────────────────────────
