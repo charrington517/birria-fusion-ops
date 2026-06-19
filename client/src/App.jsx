@@ -3,22 +3,33 @@ import { createRoot } from 'react-dom/client';
 import { Boxes, CalendarDays, ChefHat, ClipboardList, Home, Users, Wrench, Truck, Brain, ShieldCheck, LogOut, BookOpen, FlaskConical } from 'lucide-react';
 import './style.css';
 
-const nav = [
-  ['today',      Home,         'Operations Today'],
-  ['inventory',  Boxes,        'Inventory'],
-  ['ingredients',Boxes,        'Ingredients'],
-  ['compounds',  FlaskConical, 'Compounds'],
-  ['recipes',    BookOpen,     'Recipes'],
-  ['menu',       ChefHat,      'Menu'],
-  ['catering',   ClipboardList,'Catering'],
-  ['events',     CalendarDays, 'Events'],
-  ['staff',      Users,        'Staff'],
-  ['equipment',  Wrench,       'Assets'],
-  ['suppliers',  Truck,        'Suppliers'],
-  ['tasks',      ShieldCheck,  'Tasks'],
-  ['playbook',   Brain,        'Playbook'],
-  ['ai',         Brain,        'AI Copilot'],
+const navGroups = [
+  { label: 'Kitchen', items: [
+    ['menu',       ChefHat,      'Menu'],
+    ['ingredients',Boxes,        'Ingredients'],
+    ['compounds',  FlaskConical, 'Compound Ingredients'],
+    ['inventory',  Boxes,        'Inventory'],
+    ['recipes',    BookOpen,     'Recipes'],
+  ]},
+  { label: 'Events', items: [
+    ['events',     CalendarDays, 'Events'],
+    ['catering',   ClipboardList,'Catering'],
+  ]},
+  { label: 'Office', items: [
+    ['expenses',   ShieldCheck,  'Expenses'],
+    ['staff',      Users,        'Staff'],
+    ['suppliers',  Truck,        'Suppliers'],
+    ['equipment',  Wrench,       'Equipment'],
+    ['tasks',      ShieldCheck,  'Tasks'],
+  ]},
+  { label: 'System', items: [
+    ['today',      Home,         'Today'],
+    ['ai',         Brain,        'AI Copilot'],
+    ['playbook',   Brain,        'Playbook'],
+    ['activity',   ClipboardList,'Activity'],
+  ]},
 ];
+const nav = navGroups.flatMap(g => g.items);
 
 const INV_CATEGORIES  = ['Food','Disposables','Supplies','Equipment','Other'];
 const MENU_CATEGORIES = ['Entree','Appetizer','Side','Beverage','Dessert','Sauce','Signature','Fusion','Sandwich'];
@@ -34,6 +45,7 @@ const fields = {
   suppliers: ['name','category','phone','email','notes'],
   tasks:     ['title','category','status','priority','due_time','notes'],
   playbook:  ['title','category','content'],
+  expenses:  ['title','category','amount','date','notes','event_id'],
 };
 
 const money = n => '$' + Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -117,7 +129,10 @@ function App(){
   return <div className="app">
     <aside className="sidebar">
       <div className="brand"><div className="logo">TF</div><div><h1>TruckFlow</h1><p>Operations Intelligence</p></div></div>
-      {nav.map(([id,Icon,label])=><button key={id} onClick={()=>setPage(id)} className={`navbtn ${page===id?'active':''}`}><Icon size={18}/>{label}</button>)}
+      {navGroups.map(group=><div key={group.label} style={{marginTop:18}}>
+        <div style={{fontSize:10,fontWeight:950,letterSpacing:'0.14em',textTransform:'uppercase',color:'#52525b',marginBottom:6,paddingLeft:4}}>{group.label}</div>
+        {group.items.map(([id,Icon,label])=><button key={id} onClick={()=>setPage(id)} className={`navbtn ${page===id?'active':''}`}><Icon size={18}/>{label}</button>)}
+      </div>)}
     </aside>
     <main className="main">
       <header className="topbar">
