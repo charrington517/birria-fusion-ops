@@ -9,3 +9,9 @@ select option{background:#141417;color:white}
 .sug-price{background:rgba(255,255,255,.04);border:1px solid;border-radius:10px;padding:8px 10px;text-align:center}
 .menu-card{cursor:default}
 .menu-card:hover{background:linear-gradient(180deg,rgba(255,255,255,.08),rgba(255,255,255,.045))}
+
+.sidebar,.main,.modal-card{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.18) rgba(255,255,255,.04)}
+.sidebar::-webkit-scrollbar,.main::-webkit-scrollbar,.modal-card::-webkit-scrollbar{width:8px}
+.sidebar::-webkit-scrollbar-track,.main::-webkit-scrollbar-track,.modal-card::-webkit-scrollbar-track{background:rgba(255,255,255,.04);border-radius:999px}
+.sidebar::-webkit-scrollbar-thumb,.main::-webkit-scrollbar-thumb,.modal-card::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:999px}
+.sidebar::-webkit-scrollbar-thumb:hover,.main::-webkit-scrollbar-thumb:hover,.modal-card::-webkit-scrollbar-thumb:hover{background:rgba(249,115,22,.40)}
