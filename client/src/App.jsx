@@ -423,15 +423,26 @@ function CompoundModal({compound, ingredients, allCompounds, api, onClose, onSav
 // ── Inventory Page ─────────────────────────────────────────────────────────────
 function InventoryPage({items, api, refresh}){
   const [editing,setEditing]=useState(null);
+  const [q,setQ]=useState('');
   async function save(form){ const id=form.id; await api(`/api/inventory${id?`/${id}`:''}`,{method:id?'PUT':'POST',body:JSON.stringify(form)}); setEditing(null); await refresh(); }
   async function del(id){ if(!confirm('Delete?')) return; await api(`/api/inventory/${id}`,{method:'DELETE'}); await refresh(); }
+  const lq=q.toLowerCase();
+  const filtered=lq?items.filter(i=>
+    i.name.toLowerCase().includes(lq)||
+    (i.category||'').toLowerCase().includes(lq)||
+    (i.supplier||'').toLowerCase().includes(lq)
+  ):items;
   const grouped={};
-  items.forEach(item=>{ const c=item.category||'Other'; if(!grouped[c]) grouped[c]=[]; grouped[c].push(item); });
+  filtered.forEach(item=>{ const c=item.category||'Other'; if(!grouped[c]) grouped[c]=[]; grouped[c].push(item); });
   const allCats = [...INV_CATEGORIES.filter(c=>grouped[c]?.length), ...Object.keys(grouped).filter(c=>!INV_CATEGORIES.includes(c))];
   return <>
-    <div className="card" style={{marginBottom:18,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-      <div><h3>Inventory</h3><p className="muted">{items.length} items</p></div>
-      <button className="primary" onClick={()=>setEditing({})}>Add Item</button>
+    <div className="card" style={{marginBottom:18,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}>
+      <div><h3 style={{margin:'0 0 2px'}}>Inventory</h3><p className="muted" style={{margin:0}}>{filtered.length}{lq?' of '+items.length:''} items</p></div>
+      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search name, category, supplier…" style={{width:'min(240px,100%)',background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:10,padding:'8px 12px',fontSize:13}}/>
+        {q&&<button onClick={()=>setQ('')} style={{padding:'8px 10px',fontSize:12}}>✕</button>}
+        <button className="primary" onClick={()=>setEditing({})}>Add Item</button>
+      </div>
     </div>
     {allCats.map(cat=><div key={cat} style={{marginBottom:24}}>
       <div style={{color:'#fb923c',fontWeight:900,fontSize:13,textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:10,borderBottom:'1px solid rgba(249,115,22,.3)',paddingBottom:6}}>{cat}</div>
@@ -489,16 +500,26 @@ function InventoryModal({item,onSave,onClose}){
 // ── Ingredients Page ────────────────────────────────────────────────────────────
 function IngredientsPage({ingredients,inventory,api,refresh}){
   const [editing,setEditing]=useState(null);
+  const [q,setQ]=useState('');
   const invMap=Object.fromEntries(inventory.map(i=>[String(i.id),i]));
   async function save(form){ const id=form.id; await api(`/api/ingredients${id?`/${id}`:''}`,{method:id?'PUT':'POST',body:JSON.stringify(form)}); setEditing(null); await refresh(); }
   async function del(id){ if(!confirm('Delete ingredient?')) return; await api(`/api/ingredients/${id}`,{method:'DELETE'}); await refresh(); }
+  const lq=q.toLowerCase();
+  const filtered=lq?ingredients.filter(i=>
+    i.name.toLowerCase().includes(lq)||
+    (i.category||'').toLowerCase().includes(lq)
+  ):ingredients;
   return <>
-    <div className="card" style={{marginBottom:18,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-      <div><h3>Ingredients</h3><p className="muted">{ingredients.length} records</p></div>
-      <button className="primary" onClick={()=>setEditing({})}>Add Ingredient</button>
+    <div className="card" style={{marginBottom:18,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}>
+      <div><h3 style={{margin:'0 0 2px'}}>Ingredients</h3><p className="muted" style={{margin:0}}>{filtered.length}{lq?' of '+ingredients.length:''} records</p></div>
+      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search name or category…" style={{width:'min(220px,100%)',background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:10,padding:'8px 12px',fontSize:13}}/>
+        {q&&<button onClick={()=>setQ('')} style={{padding:'8px 10px',fontSize:12}}>✕</button>}
+        <button className="primary" onClick={()=>setEditing({})}>Add Ingredient</button>
+      </div>
     </div>
     <div className="grid cards">
-      {ingredients.map(ing=>{
+      {filtered.map(ing=>{
         const spp=Number(ing.servings_per_purchase)||1;
         const cps=(Number(ing.cost)||0)/spp;
         const inv=invMap[String(ing.inventory_item_id)];
@@ -741,13 +762,23 @@ function MenuPage({menuItems,recipes,allCompounds,ingredients,api,refresh}){
   }
   async function del(id){ if(!confirm('Delete menu item?')) return; await api(`/api/menu/${id}`,{method:'DELETE'}); await refresh(); }
 
+  const [q,setQ]=useState('');
+  const lq=q.toLowerCase();
+  const filteredItems=lq?menuItems.filter(i=>
+    i.name.toLowerCase().includes(lq)||
+    (i.category||'').toLowerCase().includes(lq)
+  ):menuItems;
   const grouped={};
-  menuItems.forEach(item=>{ const c=item.category||'Uncategorized'; if(!grouped[c]) grouped[c]=[]; grouped[c].push(item); });
+  filteredItems.forEach(item=>{ const c=item.category||'Uncategorized'; if(!grouped[c]) grouped[c]=[]; grouped[c].push(item); });
 
   return <>
-    <div className="card" style={{marginBottom:18,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-      <div><h3>Menu</h3><p className="muted">{menuItems.length} items</p></div>
-      <button className="primary" onClick={()=>setEditing({})}>Add Item</button>
+    <div className="card" style={{marginBottom:18,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}>
+      <div><h3 style={{margin:'0 0 2px'}}>Menu</h3><p className="muted" style={{margin:0}}>{filteredItems.length}{lq?' of '+menuItems.length:''} items</p></div>
+      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search name or category…" style={{width:'min(220px,100%)',background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:10,padding:'8px 12px',fontSize:13}}/>
+        {q&&<button onClick={()=>setQ('')} style={{padding:'8px 10px',fontSize:12}}>✕</button>}
+        <button className="primary" onClick={()=>setEditing({})}>Add Item</button>
+      </div>
     </div>
     {Object.keys(grouped).sort().map(cat=><div key={cat} style={{marginBottom:24}}>
       <div style={{color:'#fb923c',fontWeight:900,fontSize:13,textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:10,borderBottom:'1px solid rgba(249,115,22,.3)',paddingBottom:6}}>{cat}</div>
