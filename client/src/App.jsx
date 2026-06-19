@@ -52,8 +52,8 @@ const money = n => '$' + Number(n||0).toLocaleString(undefined,{minimumFractionD
 const pct   = n => Number(n||0).toFixed(1)+'%';
 function marginColor(p){ if(p>=70) return '#86efac'; if(p>=50) return '#fde68a'; return '#fca5a5'; }
 function marginLabel(p){ if(p>=70) return 'Excellent'; if(p>=60) return 'Good'; if(p>=50) return 'Watch'; return 'Low'; }
-function stockColor(cur, min){ if(Number(cur)<=0) return '#fca5a5'; if(Number(cur)<=Number(min)) return '#fde68a'; return '#86efac'; }
-function stockLabel(cur, min){ if(Number(cur)<=0) return 'Out'; if(Number(cur)<=Number(min)) return 'Low'; return 'OK'; }
+function stockColor(cur, min){ if(!Number(min)) return '#fb923c'; if(Number(cur)<=0) return '#fca5a5'; if(Number(cur)<=Number(min)) return '#fde68a'; return '#86efac'; }
+function stockLabel(cur, min){ if(!Number(min)) return 'Alerts Not Configured'; if(Number(cur)<=0) return 'Out'; if(Number(cur)<=Number(min)) return 'Low'; return 'OK'; }
 
 // ── Auth ───────────────────────────────────────────────────────────────────────
 function useApi() {
@@ -453,7 +453,7 @@ function InventoryPage({items, api, refresh}){
           return <div className="card" key={item.id}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
               <h3 style={{margin:'0 0 4px'}}>{item.name}</h3>
-              <span className="badge" style={{background:sc==='#86efac'?'rgba(34,197,94,.18)':sc==='#fde68a'?'rgba(234,179,8,.18)':'rgba(239,68,68,.2)',color:sc,fontSize:11}}>{sl}</span>
+              <span className="badge" title={sl==='Alerts Not Configured'?'Configure Min/Max stock levels to enable inventory alerts':undefined} style={{background:sc==='#86efac'?'rgba(34,197,94,.18)':sc==='#fde68a'?'rgba(234,179,8,.18)':sc==='#fb923c'?'rgba(249,115,22,.15)':'rgba(239,68,68,.2)',color:sc,fontSize:11}}>{sl}</span>
             </div>
             <div className="inv-grid" style={{marginTop:8}}>
               <div className="inv-stat"><div className="muted" style={{fontSize:11}}>In Stock</div><div style={{fontWeight:900,color:sc}}>{Number(item.current_stock).toFixed(2)} {item.unit}</div></div>
