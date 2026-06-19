@@ -719,7 +719,26 @@ function MenuPage({menuItems,recipes,allCompounds,ingredients,api,refresh}){
   },[menuItems]);
 
   async function save(form){ const id=form.id; await api(`/api/menu${id?`/${id}`:''}`,{method:id?'PUT':'POST',body:JSON.stringify(form)}); setEditing(null); await refresh(); }
-  async function duplicate(item){ const {id,created_at,...rest}=item; await api('/api/menu',{method:'POST',body:JSON.stringify({...rest,name:`${item.name} (copy)`})}); await refresh(); }
+  async function duplicate(item){
+    const {id,created_at,...rest}=item;
+    let dup;
+    try {
+      dup = await api('/api/menu',{method:'POST',body:JSON.stringify({...rest,name:`${item.name} (copy)`})});
+      const [srcIngs, srcComps] = await Promise.all([
+        api(`/api/menu-item-ingredients?menu_item_id=${item.id}`),
+        api(`/api/menu-item-compound-ingredients?menu_item_id=${item.id}`)
+      ]);
+      await Promise.all([
+        ...srcIngs.map(r=>api('/api/menu-item-ingredients',{method:'POST',body:JSON.stringify({menu_item_id:dup.id,ingredient_id:r.ingredient_id,quantity:r.quantity,unit:r.unit})})),
+        ...srcComps.map(r=>api('/api/menu-item-compound-ingredients',{method:'POST',body:JSON.stringify({menu_item_id:dup.id,compound_ingredient_id:r.compound_ingredient_id,quantity:r.quantity,unit:r.unit})}))
+      ]);
+    } catch(e) {
+      if(dup?.id) await api(`/api/menu/${dup.id}`,{method:'DELETE'}).catch(()=>{});
+      alert('Duplicate failed: ' + e.message);
+      return;
+    }
+    await refresh();
+  }
   async function del(id){ if(!confirm('Delete menu item?')) return; await api(`/api/menu/${id}`,{method:'DELETE'}); await refresh(); }
 
   const grouped={};
