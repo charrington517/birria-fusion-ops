@@ -724,7 +724,7 @@ function MenuPage({menuItems,recipes,allCompounds,ingredients,api,refresh}){
         ))}
       </div>
     </div>)}
-    {editing!==null&&<MenuItemModal item={editing} recipes={recipes} allCompounds={allCompounds} ingredients={overview?.data?.ingredients||[]} api={api} onSave={save} onClose={()=>setEditing(null)}/>}
+    {editing!==null&&<MenuItemModal item={editing} recipes={recipes} allCompounds={allCompounds} ingredients={ingredients||[]} api={api} onSave={save} onClose={()=>setEditing(null)}/>}
   </>;
 }
 
