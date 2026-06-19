@@ -815,7 +815,10 @@ function MenuItemModal({item,recipes,allCompounds,ingredients,api,onSave,onClose
   const [form,setForm]=useState({id:item.id,name:item.name||'',category:item.category||'Entree',price:item.price||'',description:item.description||'',prep_notes:item.prep_notes||'',active:item.active!==false,recipe_id:item.recipe_id||'',portions:item.portions||1});
   const [ingRows,  setIngRows]   = useState([]);
   const [compRows, setCompRows]  = useState([]);
+  const [compCosts, setCompCosts] = useState({});
   const [loadingComp, setLoadingComp] = useState(!isNew);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   function set(k,v){setForm(f=>({...f,[k]:v}));}
 
   useEffect(()=>{
@@ -827,27 +830,45 @@ function MenuItemModal({item,recipes,allCompounds,ingredients,api,onSave,onClose
       setIngRows(ingData.map(r=>({id:r.id,ingredient_id:r.ingredient_id,quantity:r.quantity,unit:r.unit})));
       setCompRows(compData.map(r=>({id:r.id,compound_ingredient_id:r.compound_ingredient_id,quantity:r.quantity,unit:r.unit})));
       setLoadingComp(false);
+      compData.forEach(r=>fetchCompCost(r.compound_ingredient_id));
     }).catch(()=>setLoadingComp(false));
   },[]);
 
+  function fetchCompCost(cid){
+    if(!cid||compCosts[cid]!==undefined) return;
+    setCompCosts(prev=>({...prev,[cid]:'loading'}));
+    api(`/api/compound-ingredients/${cid}/cost`)
+      .then(d=>setCompCosts(prev=>({...prev,[cid]:d.cost_per_yield_unit})))
+      .catch(()=>setCompCosts(prev=>({...prev,[cid]:null})));
+  }
+
   async function save(){
-    const saved = await api(`/api/menu${form.id?`/${form.id}`:''}`,{method:form.id?'PUT':'POST',body:JSON.stringify(form)});
-    const menuId = form.id || saved.id;
-    // sync ingredient rows
-    const existingIng = await api(`/api/menu-item-ingredients?menu_item_id=${menuId}`);
-    for(const r of existingIng) await api(`/api/menu-item-ingredients/${r.id}`,{method:'DELETE'}).catch(()=>{});
-    for(const row of ingRows){
-      if(!row.ingredient_id||!row.quantity||Number(row.quantity)<=0) continue;
-      await api('/api/menu-item-ingredients',{method:'POST',body:JSON.stringify({menu_item_id:menuId,ingredient_id:Number(row.ingredient_id),quantity:Number(row.quantity),unit:row.unit})});
+    if(!form.name.trim()){ setSaveError('Name is required.'); return; }
+    if(!form.price||Number(form.price)<=0){ setSaveError('Price must be > 0.'); return; }
+    setSaving(true); setSaveError('');
+    try{
+      const payload={...form, recipe_id: form.recipe_id ? Number(form.recipe_id) : null};
+      const saved = await api(`/api/menu${form.id?`/${form.id}`:''}`,{method:form.id?'PUT':'POST',body:JSON.stringify(payload)});
+      const menuId = form.id || saved.id;
+      const existingIng = await api(`/api/menu-item-ingredients?menu_item_id=${menuId}`);
+      for(const r of existingIng) await api(`/api/menu-item-ingredients/${r.id}`,{method:'DELETE'}).catch(()=>{});
+      for(const row of ingRows){
+        if(!row.ingredient_id||!row.quantity||Number(row.quantity)<=0) continue;
+        await api('/api/menu-item-ingredients',{method:'POST',body:JSON.stringify({menu_item_id:menuId,ingredient_id:Number(row.ingredient_id),quantity:Number(row.quantity),unit:row.unit})});
+      }
+      const existingComp = await api(`/api/menu-item-compound-ingredients?menu_item_id=${menuId}`);
+      for(const r of existingComp) await api(`/api/menu-item-compound-ingredients/${r.id}`,{method:'DELETE'}).catch(()=>{});
+      for(const row of compRows){
+        if(!row.compound_ingredient_id||!row.quantity||Number(row.quantity)<=0) continue;
+        await api('/api/menu-item-compound-ingredients',{method:'POST',body:JSON.stringify({menu_item_id:menuId,compound_ingredient_id:Number(row.compound_ingredient_id),quantity:Number(row.quantity),unit:row.unit})});
+      }
+      onSave(form);
+    }catch(e){
+      console.error('MenuItemModal save error:', e);
+      setSaveError(e.message||'Save failed. Check console.');
+    }finally{
+      setSaving(false);
     }
-    // sync compound rows
-    const existingComp = await api(`/api/menu-item-compound-ingredients?menu_item_id=${menuId}`);
-    for(const r of existingComp) await api(`/api/menu-item-compound-ingredients/${r.id}`,{method:'DELETE'}).catch(()=>{});
-    for(const row of compRows){
-      if(!row.compound_ingredient_id||!row.quantity||Number(row.quantity)<=0) continue;
-      await api('/api/menu-item-compound-ingredients',{method:'POST',body:JSON.stringify({menu_item_id:menuId,compound_ingredient_id:Number(row.compound_ingredient_id),quantity:Number(row.quantity),unit:row.unit})});
-    }
-    onSave(form);
   }
 
   function addIngRow(){ setIngRows(r=>[...r,{ingredient_id:'',quantity:1,unit:'each'}]); }
@@ -855,16 +876,32 @@ function MenuItemModal({item,recipes,allCompounds,ingredients,api,onSave,onClose
   function removeIng(i){ setIngRows(r=>r.filter((_,idx)=>idx!==i)); }
 
   function addCompRow(){ setCompRows(r=>[...r,{compound_ingredient_id:'',quantity:1,unit:''}]); }
-  function updateComp(i,k,v){ setCompRows(r=>r.map((row,idx)=>idx===i?{...row,[k]:v}:row)); }
+  function updateComp(i,k,v){
+    setCompRows(r=>r.map((row,idx)=>{
+      if(idx!==i) return row;
+      const updated={...row,[k]:v};
+      if(k==='compound_ingredient_id') fetchCompCost(Number(v));
+      return updated;
+    }));
+  }
   function removeComp(i){ setCompRows(r=>r.filter((_,idx)=>idx!==i)); }
 
-  // live ingredient subtotal
   const ingSubtotal = ingRows.reduce((sum,row)=>{
     const ing=ingredients.find(ig=>ig.id===Number(row.ingredient_id));
     if(!ing) return sum;
     const spp=Number(ing.servings_per_purchase)||1;
     return sum+(Number(ing.cost)/spp)*(Number(row.quantity)||0);
   },0);
+
+  const compSubtotal = compRows.reduce((sum,row)=>{
+    const cpu=compCosts[Number(row.compound_ingredient_id)];
+    if(!cpu||cpu==='loading') return sum;
+    return sum+Number(cpu)*(Number(row.quantity)||0);
+  },0);
+
+  const totalCost = ingSubtotal + compSubtotal;
+  const menuPrice = Number(form.price)||0;
+  const margin = menuPrice>0 ? ((menuPrice-totalCost)/menuPrice)*100 : null;
 
   if(loadingComp) return <div className="modal"><div className="modal-card"><p className="muted">Loading…</p></div></div>;
 
@@ -880,8 +917,8 @@ function MenuItemModal({item,recipes,allCompounds,ingredients,api,onSave,onClose
         <label><div className="muted">Portions</div><input type="number" min="1" value={form.portions} onChange={e=>set('portions',e.target.value)}/></label>
         <label style={{display:'flex',alignItems:'center',gap:8,paddingTop:20}}><input type="checkbox" checked={form.active} onChange={e=>set('active',e.target.checked)} style={{width:'auto'}}/><span className="muted">Active on menu</span></label>
       </div>
-      <label><div className="muted">Assign Recipe (ingredient costing)</div>
-        <select value={form.recipe_id||''} onChange={e=>set('recipe_id',e.target.value||null)} style={{background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:12,padding:'11px 13px',width:'100%'}}>
+      <label><div className="muted">Recipe Reference (optional)</div>
+        <select value={form.recipe_id||''} onChange={e=>set('recipe_id',e.target.value||'')} style={{background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:12,padding:'11px 13px',width:'100%'}}>
           <option value="">— no recipe —</option>{recipes.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
       </label>
@@ -914,19 +951,32 @@ function MenuItemModal({item,recipes,allCompounds,ingredients,api,onSave,onClose
       {compRows.length===0 && <p className="muted" style={{fontSize:12,margin:'4px 0'}}>No compound ingredients assigned.</p>}
       {compRows.map((row,i)=>{
         const ci=allCompounds.find(c=>c.id===Number(row.compound_ingredient_id));
-        return <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 70px 70px 28px',gap:8,alignItems:'center',marginBottom:6}}>
+        const cpu=compCosts[Number(row.compound_ingredient_id)];
+        const lc=(cpu&&cpu!=='loading')?(Number(cpu)*(Number(row.quantity)||0)):null;
+        return <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 70px 70px 70px 28px',gap:8,alignItems:'center',marginBottom:6}}>
           <select value={row.compound_ingredient_id} onChange={e=>{ updateComp(i,'compound_ingredient_id',e.target.value); const c=allCompounds.find(x=>x.id===Number(e.target.value)); if(c) updateComp(i,'unit',c.yield_unit); }} style={selectStyle}>
             <option value="">Select compound…</option>
             {allCompounds.map(c=><option key={c.id} value={c.id}>{c.name} ({c.yield_unit})</option>)}
           </select>
           <input type="number" step="0.01" min="0.01" value={row.quantity} onChange={e=>updateComp(i,'quantity',e.target.value)} style={{borderRadius:10,background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',padding:'8px'}}/>
           <input value={row.unit||ci?.yield_unit||''} onChange={e=>updateComp(i,'unit',e.target.value)} placeholder="unit" style={{borderRadius:10,background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',padding:'8px'}}/>
+          <div style={{fontSize:11,color:'#fca5a5',textAlign:'right'}}>{cpu==='loading'?'…':lc!==null?`$${lc.toFixed(2)}`:''}</div>
           <button onClick={()=>removeComp(i)} style={{padding:'4px 8px',background:'rgba(239,68,68,.3)'}}>×</button>
         </div>;
       })}
+      {compRows.length>0 && <div className="muted" style={{fontSize:12,textAlign:'right',marginBottom:4}}>Compound subtotal: <strong style={{color:'#fca5a5'}}>${compSubtotal.toFixed(4)}</strong></div>}
+
+      {(ingRows.length>0||compRows.length>0) && <div style={{background:'rgba(255,255,255,.04)',borderRadius:10,padding:'10px 14px',marginBottom:8,fontSize:13}}>
+        <div style={{display:'flex',justifyContent:'space-between'}}><span className="muted">Ingredient subtotal</span><span>${ingSubtotal.toFixed(4)}</span></div>
+        <div style={{display:'flex',justifyContent:'space-between'}}><span className="muted">Compound subtotal</span><span>${compSubtotal.toFixed(4)}</span></div>
+        <div style={{display:'flex',justifyContent:'space-between',fontWeight:900,borderTop:'1px solid rgba(255,255,255,.1)',marginTop:6,paddingTop:6}}><span>Est. food cost</span><span style={{color:'#fca5a5'}}>${totalCost.toFixed(4)}</span></div>
+        {margin!==null && <div style={{display:'flex',justifyContent:'space-between',marginTop:4}}><span className="muted">Est. margin</span><span style={{color:margin>=50?'#86efac':margin>=30?'#fde68a':'#fca5a5'}}>{margin.toFixed(1)}%</span></div>}
+      </div>}
+
       <label><div className="muted">Description</div><textarea value={form.description} onChange={e=>set('description',e.target.value)}/></label>
       <label><div className="muted">Prep Notes</div><textarea value={form.prep_notes} onChange={e=>set('prep_notes',e.target.value)}/></label>
-      <button className="primary" onClick={save}>Save Item</button>
+      {saveError && <div className="badge red" style={{borderRadius:10,padding:'8px 12px'}}>{saveError}</div>}
+      <button className="primary" onClick={save} disabled={saving}>{saving?'Saving…':'Save Item'}</button>
     </div>
   </div></div>;
 }
