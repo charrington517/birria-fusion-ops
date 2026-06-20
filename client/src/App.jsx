@@ -102,6 +102,7 @@ function App(){
   const [page,setPage]=useState('today');
   const [overview,setOverview]=useState(null);
   const [modal,setModal]=useState(null);
+  const [navOpen,setNavOpen]=useState(false);
   const [aiPrompt,setAiPrompt]=useState('What needs attention today?');
   const [aiAnswer,setAiAnswer]=useState('');
 
@@ -126,20 +127,30 @@ function App(){
     await refresh();
   }
 
+  function nav(id){ setPage(id); setNavOpen(false); }
+
   return <div className="app">
-    <aside className="sidebar">
-      <div className="brand"><div className="logo">TF</div><div><h1>TruckFlow</h1><p>Operations Intelligence</p></div></div>
-  {(() => { const [id,Icon,label]=todayItem; return <button key='today' onClick={()=>setPage('today')} className={`navbtn ${page==='today'?'active':''}`} style={{marginBottom:8}}><Icon size={18}/>{label}</button>; })()}
+    {navOpen && <div className="nav-overlay" onClick={()=>setNavOpen(false)}/>}
+    <aside className={`sidebar ${navOpen?'nav-open':''}`}>
+      <div className="brand">
+        <div className="logo">TF</div>
+        <div><h1>TruckFlow</h1><p>Operations Intelligence</p></div>
+        <button className="nav-close" onClick={()=>setNavOpen(false)}>&#10005;</button>
+      </div>
+  {(() => { const [id,Icon,label]=todayItem; return <button key='today' onClick={()=>nav('today')} className={`navbtn ${page==='today'?'active':''}`} style={{marginBottom:8}}><Icon size={18}/>{label}</button>; })()}
       <div style={{borderBottom:'1px solid rgba(255,255,255,.07)',margin:'4px 0 2px'}}/>
       {navGroups.map(group=><div key={group.label} style={{marginTop:18}}>
         <div style={{fontSize:10,fontWeight:950,letterSpacing:'0.14em',textTransform:'uppercase',color:'#52525b',marginBottom:6,paddingLeft:4}}>{group.label}</div>
-        {group.items.map(([id,Icon,label])=><button key={id} onClick={()=>setPage(id)} className={`navbtn ${page===id?'active':''}`}><Icon size={18}/>{label}</button>)}
+        {group.items.map(([id,Icon,label])=><button key={id} onClick={()=>nav(id)} className={`navbtn ${page===id?'active':''}`}><Icon size={18}/>{label}</button>)}
       </div>)}
     </aside>
     <main className="main">
       <header className="topbar">
-        <div><div className="kicker">Command Center · {auth.user?.role} · {VERSION}</div><h2>{title}</h2></div>
-        <div className="actions"><button onClick={()=>setPage('ai')}>AI</button><button onClick={auth.logout}><LogOut size={16}/> Logout</button></div>
+        <div style={{display:'flex',alignItems:'center',gap:12}}>
+          <button className="hamburger" onClick={()=>setNavOpen(true)}>&#9776;</button>
+          <div><div className="kicker">Command Center · {auth.user?.role} · {VERSION}</div><h2 style={{margin:'4px 0 0'}}>{title}</h2></div>
+        </div>
+        <div className="actions"><button onClick={()=>nav('ai')}>AI</button><button onClick={auth.logout}><LogOut size={16}/> Logout</button></div>
       </header>
       <section className="content">
         {page==='today'       && <Today overview={overview}/>}
