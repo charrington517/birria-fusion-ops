@@ -124,8 +124,18 @@ async function init() {
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL,
       category TEXT,
+      vendor_type TEXT,
       phone TEXT,
       email TEXT,
+      contact_name TEXT,
+      website TEXT,
+      address TEXT,
+      delivery_days TEXT,
+      default_order_day TEXT,
+      lead_time_days INTEGER DEFAULT 1,
+      minimum_order NUMERIC DEFAULT 0,
+      payment_terms TEXT,
+      active BOOLEAN DEFAULT true,
       notes TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
@@ -236,6 +246,47 @@ async function init() {
         WHERE table_name='ingredients' AND column_name='inventory_item_id'
       ) THEN
         ALTER TABLE ingredients ADD COLUMN inventory_item_id INTEGER REFERENCES inventory(id);
+      END IF;
+    END $$;
+
+    -- Add new columns to suppliers if not present
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='suppliers' AND column_name='vendor_type') THEN
+        ALTER TABLE suppliers ADD COLUMN vendor_type TEXT;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='suppliers' AND column_name='contact_name') THEN
+        ALTER TABLE suppliers ADD COLUMN contact_name TEXT;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='suppliers' AND column_name='website') THEN
+        ALTER TABLE suppliers ADD COLUMN website TEXT;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='suppliers' AND column_name='address') THEN
+        ALTER TABLE suppliers ADD COLUMN address TEXT;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='suppliers' AND column_name='delivery_days') THEN
+        ALTER TABLE suppliers ADD COLUMN delivery_days TEXT;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='suppliers' AND column_name='default_order_day') THEN
+        ALTER TABLE suppliers ADD COLUMN default_order_day TEXT;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='suppliers' AND column_name='lead_time_days') THEN
+        ALTER TABLE suppliers ADD COLUMN lead_time_days INTEGER DEFAULT 1;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='suppliers' AND column_name='minimum_order') THEN
+        ALTER TABLE suppliers ADD COLUMN minimum_order NUMERIC DEFAULT 0;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='suppliers' AND column_name='payment_terms') THEN
+        ALTER TABLE suppliers ADD COLUMN payment_terms TEXT;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='suppliers' AND column_name='active') THEN
+        ALTER TABLE suppliers ADD COLUMN active BOOLEAN DEFAULT true;
+      END IF;
+    END $$;
+
+    -- Add supplier_id FK to inventory
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='inventory' AND column_name='supplier_id') THEN
+        ALTER TABLE inventory ADD COLUMN supplier_id INTEGER REFERENCES suppliers(id) ON DELETE SET NULL;
       END IF;
     END $$;
 

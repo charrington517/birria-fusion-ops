@@ -12,7 +12,7 @@ const EXPECTED = {
   events:              1,
   staff:               3,
   equipment:           2,
-  suppliers:           2,
+  suppliers:           7,
   tasks:               2,
   playbook:            2,
   expenses:            3,
@@ -339,6 +339,47 @@ async function verify() {
   } else {
     fail('"Birria Ramen" total cost', 'expected ~$7.83, got $' + totalCost.toFixed(4));
   }
+
+  // ── Vendor (supplier) assertions ────────────────────────────────────────
+  console.log('\nVendor (supplier) assertions:');
+
+  const vendorRows = (await query('SELECT * FROM suppliers ORDER BY name')).rows;
+  const vMap = Object.fromEntries(vendorRows.map(s => [s.name, s]));
+
+  vendorRows.length === 7 ? pass('vendor count: 7') : fail('vendor count', `expected 7, got ${vendorRows.length}`);
+  !vMap['In-house'] ? pass('no In-house supplier') : fail('In-house still exists');
+  vMap['Internal Production'] ? pass('Internal Production exists') : fail('Internal Production missing');
+  vMap['Internal Production']?.vendor_type === 'Internal Production' ? pass('Internal Production vendor_type') : fail('Internal Production vendor_type', vMap['Internal Production']?.vendor_type);
+  vMap['Restaurant Depot']?.vendor_type === 'Restaurant Supply' ? pass('Restaurant Depot vendor_type') : fail('Restaurant Depot vendor_type', vMap['Restaurant Depot']?.vendor_type);
+  vMap['Local Butcher']?.vendor_type === 'Local Vendor' ? pass('Local Butcher vendor_type') : fail('Local Butcher vendor_type', vMap['Local Butcher']?.vendor_type);
+  vMap['Webstaurant']?.vendor_type === 'Distributor' ? pass('Webstaurant vendor_type') : fail('Webstaurant vendor_type', vMap['Webstaurant']?.vendor_type);
+  Number(vMap['Webstaurant']?.lead_time_days) === 3 ? pass('Webstaurant lead_time_days=3') : fail('Webstaurant lead_time_days', vMap['Webstaurant']?.lead_time_days);
+  Number(vMap['Local Butcher']?.lead_time_days) === 1 ? pass('Local Butcher lead_time_days=1') : fail('Local Butcher lead_time_days', vMap['Local Butcher']?.lead_time_days);
+
+  const invSupRows = (await query(`
+    SELECT i.name AS inv, s.name AS sup
+    FROM inventory i
+    JOIN suppliers s ON s.id = i.supplier_id
+    ORDER BY i.name
+  `)).rows;
+  const isMap = Object.fromEntries(invSupRows.map(r => [r.inv, r.sup]));
+
+  isMap['Birria Beef'] === 'Local Butcher'             ? pass('Birria Beef -> Local Butcher')             : fail('Birria Beef supplier_id', isMap['Birria Beef']);
+  isMap['Corn Tortillas'] === 'Restaurant Depot'        ? pass('Corn Tortillas -> Restaurant Depot')       : fail('Corn Tortillas supplier_id', isMap['Corn Tortillas']);
+  isMap['Consomé'] === 'Internal Production'       ? pass('Consomé -> Internal Production')      : fail('Consomé supplier_id', isMap['Consomé']);
+  isMap['Cilantro'] === 'Produce Vendor'                ? pass('Cilantro -> Produce Vendor')               : fail('Cilantro supplier_id', isMap['Cilantro']);
+  isMap['To-Go Bowls'] === 'Webstaurant'                ? pass('To-Go Bowls -> Webstaurant')               : fail('To-Go Bowls supplier_id', isMap['To-Go Bowls']);
+  isMap['Beef Shank'] === 'Local Butcher'               ? pass('Beef Shank -> Local Butcher')              : fail('Beef Shank supplier_id', isMap['Beef Shank']);
+  isMap['Dried Guajillo Chiles'] === 'Restaurant Depot' ? pass('Dried Guajillo -> Restaurant Depot')       : fail('Dried Guajillo supplier_id', isMap['Dried Guajillo Chiles']);
+  isMap['White Onion'] === 'Produce Vendor'             ? pass('White Onion -> Produce Vendor')            : fail('White Onion supplier_id', isMap['White Onion']);
+  isMap['Ramen Noodles'] === 'Restaurant Depot'         ? pass('Ramen Noodles -> Restaurant Depot')        : fail('Ramen Noodles supplier_id', isMap['Ramen Noodles']);
+  isMap['Refried Beans'] === 'Restaurant Depot'         ? pass('Refried Beans -> Restaurant Depot')        : fail('Refried Beans supplier_id', isMap['Refried Beans']);
+  isMap['Jalapeño'] === 'Produce Vendor'           ? pass('Jalapeño -> Produce Vendor')           : fail('Jalapeño supplier_id', isMap['Jalapeño']);
+
+  const nullSup = (await query('SELECT name FROM inventory WHERE supplier_id IS NULL ORDER BY name')).rows.map(r => r.name);
+  nullSup.includes('Oaxaca Cheese') ? pass('Oaxaca Cheese supplier_id=null') : fail('Oaxaca Cheese supplier_id', 'expected null');
+  nullSup.includes('Eggs')          ? pass('Eggs supplier_id=null')          : fail('Eggs supplier_id', 'expected null');
+  nullSup.includes('Bolillo Roll')  ? pass('Bolillo Roll supplier_id=null')  : fail('Bolillo Roll supplier_id', 'expected null');
 
   // ── Summary ───────────────────────────────────────────────────────────────
   console.log(`\n${'─'.repeat(50)}`);

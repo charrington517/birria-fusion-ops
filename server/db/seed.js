@@ -36,7 +36,7 @@ async function seed() {
   await insertIfEmpty('inventory', [
     { name: 'Birria Beef',           category: 'Food',      unit: 'lb',      current_stock: 18, min_stock: 20, max_stock: 80, cost: 5.85, supplier: 'Local Butcher',    forecast_per_event: 12 },
     { name: 'Corn Tortillas',        category: 'Food',      unit: 'pack',    current_stock: 6,  min_stock: 8,  max_stock: 30, cost: 3.25, supplier: 'Restaurant Depot', forecast_per_event: 5  },
-    { name: 'Consom\u00e9',          category: 'Prep',      unit: 'qt',      current_stock: 10, min_stock: 8,  max_stock: 30, cost: 2.10, supplier: 'In-house',         forecast_per_event: 6  },
+    { name: 'Consom\u00e9',          category: 'Prep',      unit: 'qt',      current_stock: 10, min_stock: 8,  max_stock: 30, cost: 2.10, supplier: 'Internal Production',         forecast_per_event: 6  },
     { name: 'Cilantro',              category: 'Produce',   unit: 'bunch',   current_stock: 2,  min_stock: 5,  max_stock: 20, cost: 0.95, supplier: 'Produce Vendor',   forecast_per_event: 3  },
     { name: 'To-Go Bowls',           category: 'Packaging', unit: 'case',    current_stock: 1,  min_stock: 2,  max_stock: 8,  cost: 42,   supplier: 'Webstaurant',      forecast_per_event: 1  },
     { name: 'Beef Shank',            category: 'Meat',      unit: 'lb',      current_stock: 0,  min_stock: 0,  cost: 4.20 },
@@ -224,10 +224,62 @@ async function seed() {
     { name: 'Hot Holding Cabinet', status: 'Available',       location: 'Truck',   qr_code: 'EQ-HOT-002', quantity_total: 1, quantity_available: 1, notes: 'Ready'                   },
   ]);
 
-  await insertIfEmpty('suppliers', [
-    { name: 'Restaurant Depot', category: 'Food/Supplies', notes: 'Bulk tortillas, noodles, paper goods' },
-    { name: 'Local Butcher',    category: 'Meat',          notes: 'Chuck, shank, ribs/cheeks'           },
-  ]);
+  // Upsert suppliers by name (safe for existing rows — updates vendor_type + fields, inserts missing)
+  {
+    const vendorDefs = [
+      { name: 'Restaurant Depot',    category: 'Food/Supplies', vendor_type: 'Restaurant Supply',  active: true, delivery_days: 'Tue, Thu, Sat', lead_time_days: 1, notes: 'Bulk tortillas, noodles, paper goods' },
+      { name: 'Local Butcher',       category: 'Meat',          vendor_type: 'Local Vendor',        active: true, delivery_days: 'Mon, Wed, Fri', lead_time_days: 1, notes: 'Chuck, shank, ribs/cheeks' },
+      { name: 'Internal Production', category: 'Prep',          vendor_type: 'Internal Production', active: true, notes: 'Made on premises' },
+      { name: 'Produce Vendor',      category: 'Produce',       vendor_type: 'Local Vendor',        active: true, delivery_days: 'Mon, Wed, Fri' },
+      { name: 'Webstaurant',         category: 'Packaging',     vendor_type: 'Distributor',         active: true, lead_time_days: 3, payment_terms: 'Credit card', notes: 'To-go containers, disposables' },
+      { name: 'Costco',              category: 'Bulk',          vendor_type: 'Wholesale Club',      active: true, notes: 'Pickup only' },
+      { name: 'US Foods',            category: 'Food/Supplies', vendor_type: 'Distributor',         active: true, lead_time_days: 2, notes: 'Broadline distributor' },
+    ];
+    for (const v of vendorDefs) {
+      const existing = await query('SELECT id FROM suppliers WHERE name=$1', [v.name]);
+      if (existing.rows.length) {
+        // Update fields on existing row (safe: only sets new fields)
+        await query(
+          `UPDATE suppliers SET vendor_type=$1, category=$2, delivery_days=$3,
+           lead_time_days=$4, payment_terms=$5, active=$6, notes=COALESCE(notes,$7)
+           WHERE name=$8`,
+          [v.vendor_type, v.category, v.delivery_days||null, v.lead_time_days||1,
+           v.payment_terms||null, v.active, v.notes||null, v.name]
+        );
+      } else {
+        const keys = Object.keys(v);
+        const vals = Object.values(v);
+        const params = keys.map((_,i)=>`$${i+1}`).join(',');
+        await query(`INSERT INTO suppliers (${keys.join(',')}) VALUES (${params})`, vals);
+      }
+    }
+  }
+
+  // Map supplier_id on inventory rows by name lookup
+  {
+    const supRows = (await query('SELECT id, name FROM suppliers')).rows;
+    const sid = (name) => { const r = supRows.find(s => s.name === name); return r ? r.id : null; };
+    const invRows = (await query('SELECT id, name FROM inventory')).rows;
+    const mapping = {
+      'Birria Beef':           'Local Butcher',
+      'Corn Tortillas':        'Restaurant Depot',
+      'Consomé':          'Internal Production',
+      'Cilantro':              'Produce Vendor',
+      'To-Go Bowls':           'Webstaurant',
+      'Beef Shank':            'Local Butcher',
+      'Dried Guajillo Chiles': 'Restaurant Depot',
+      'White Onion':           'Produce Vendor',
+      'Ramen Noodles':         'Restaurant Depot',
+      'Refried Beans':         'Restaurant Depot',
+      'Jalapeño':         'Produce Vendor',
+    };
+    for (const inv of invRows) {
+      const supplierId = sid(mapping[inv.name]);
+      if (supplierId) {
+        await query('UPDATE inventory SET supplier_id = $1 WHERE id = $2 AND supplier_id IS NULL', [supplierId, inv.id]);
+      }
+    }
+  }
 
   await insertIfEmpty('tasks', [
     { title: 'Prep 18 lb birria batch',      category: 'Prep',      status: 'Open', priority: 'High',   due_time: '9:00 AM',  notes: 'Needed for weekend demand' },
