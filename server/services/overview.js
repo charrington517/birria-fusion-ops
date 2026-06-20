@@ -67,7 +67,21 @@ async function buildOverview() {
       events: events.rows,
       staff: staffRows,
       equipment: equip,
-      suppliers: suppliers.rows,
+      suppliers: suppliers.rows.map(s => {
+        const sid = s.id;
+        const linked = inv.filter(i => Number(i.supplier_id) === sid);
+        const linked_count = linked.length;
+        const low_count = linked.filter(i =>
+          Number(i.min_stock) > 0 &&
+          Number(i.current_stock) > 0 &&
+          Number(i.current_stock) <= Number(i.min_stock)
+        ).length;
+        const out_count = linked.filter(i =>
+          Number(i.min_stock) > 0 &&
+          Number(i.current_stock) <= 0
+        ).length;
+        return { ...s, linked_count, low_count, out_count };
+      }),
       tasks: taskRows,
       playbook: playbook.rows,
       activity: activity.rows,
