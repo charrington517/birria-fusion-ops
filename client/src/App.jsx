@@ -127,7 +127,7 @@ function App(){
     await refresh();
   }
 
-  function nav(id){ setPage(id); setNavOpen(false); }
+  function navTo(id){ setPage(id); setNavOpen(false); }
 
   return <div className="app">
     {navOpen && <div className="nav-overlay" onClick={()=>setNavOpen(false)}/>}
@@ -137,11 +137,11 @@ function App(){
         <div><h1>TruckFlow</h1><p>Operations Intelligence</p></div>
         <button className="nav-close" onClick={()=>setNavOpen(false)}>&#10005;</button>
       </div>
-  {(() => { const [id,Icon,label]=todayItem; return <button key='today' onClick={()=>nav('today')} className={`navbtn ${page==='today'?'active':''}`} style={{marginBottom:8}}><Icon size={18}/>{label}</button>; })()}
+  {(() => { const [id,Icon,label]=todayItem; return <button key='today' onClick={()=>navTo('today')} className={`navbtn ${page==='today'?'active':''}`} style={{marginBottom:8}}><Icon size={18}/>{label}</button>; })()}
       <div style={{borderBottom:'1px solid rgba(255,255,255,.07)',margin:'4px 0 2px'}}/>
       {navGroups.map(group=><div key={group.label} style={{marginTop:18}}>
         <div style={{fontSize:10,fontWeight:950,letterSpacing:'0.14em',textTransform:'uppercase',color:'#52525b',marginBottom:6,paddingLeft:4}}>{group.label}</div>
-        {group.items.map(([id,Icon,label])=><button key={id} onClick={()=>nav(id)} className={`navbtn ${page===id?'active':''}`}><Icon size={18}/>{label}</button>)}
+        {group.items.map(([id,Icon,label])=><button key={id} onClick={()=>navTo(id)} className={`navbtn ${page===id?'active':''}`}><Icon size={18}/>{label}</button>)}
       </div>)}
     </aside>
     <main className="main">
@@ -150,12 +150,12 @@ function App(){
           <button className="hamburger" onClick={()=>setNavOpen(true)}>&#9776;</button>
           <div><div className="kicker">Command Center · {auth.user?.role} · {VERSION}</div><h2 style={{margin:'4px 0 0'}}>{title}</h2></div>
         </div>
-        <div className="actions"><button onClick={()=>nav('ai')}>AI</button><button onClick={auth.logout}><LogOut size={16}/> Logout</button></div>
+        <div className="actions"><button onClick={()=>navTo('ai')}>AI</button><button onClick={auth.logout}><LogOut size={16}/> Logout</button></div>
       </header>
       <section className="content">
         {page==='today'       && <Today overview={overview}/>}
         {page==='ai'          && <AiPage aiPrompt={aiPrompt} setAiPrompt={setAiPrompt} aiAnswer={aiAnswer} setAiAnswer={setAiAnswer} api={auth.api}/>}
-        {page==='inventory'   && <InventoryPage items={data} api={auth.api} refresh={refresh}/>}
+        {page==='inventory'   && <InventoryPage items={data} suppliers={Array.isArray(overview?.data?.suppliers)?overview.data.suppliers:[]} api={auth.api} refresh={refresh}/>}
         {page==='ingredients' && <IngredientsPage ingredients={data} inventory={overview.data.inventory||[]} api={auth.api} refresh={refresh}/>}
         {page==='compounds'   && <CompoundsPage compounds={data} ingredients={overview.data.ingredients||[]} allCompounds={overview.data.compounds||[]} api={auth.api} refresh={refresh}/>}
         {page==='recipes'     && <RecipesPage recipes={data} ingredients={overview.data.ingredients||[]} api={auth.api} refresh={refresh}/>}
