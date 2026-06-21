@@ -448,6 +448,35 @@ async function seed() {
     console.log('Seeded menu_item_ingredients: 17 rows');
   }
 
+
+  // ── Compliance records ────────────────────────────────────────
+  await insertIfEmpty('compliance', [
+    { name: 'Lincoln County Mobile Food Unit Permit', category: 'Permit',
+      issuer: 'Lincoln County Environmental Health', license_number: 'MFU-2024-0042',
+      cost: 150, renewal_cost: 150, issue_date: '2024-01-15', expiration_date: '2026-01-14',
+      renewal_period: 'Annual', auto_renew: false, status: 'Active', active: true,
+      notes: 'Required to operate food truck in Lincoln County' },
+    { name: 'Oregon Food Handler Certification', category: 'Certification',
+      issuer: 'Oregon Department of Agriculture', license_number: 'ODA-FH-2024-7721',
+      cost: 80, renewal_cost: 80, issue_date: '2024-03-01', expiration_date: '2027-03-01',
+      renewal_period: '3 years', auto_renew: false, status: 'Active', active: true,
+      notes: 'Owner food handler card' },
+    { name: 'Commercial Auto Insurance', category: 'Insurance',
+      issuer: 'Progressive Commercial', license_number: 'POL-CA-8821445',
+      cost: 1800, renewal_cost: 1900, issue_date: '2025-06-01', expiration_date: '2026-06-01',
+      renewal_period: 'Annual', auto_renew: true, status: 'Active', active: true,
+      notes: 'Commercial auto for food truck and trailer' },
+    { name: 'Trailer Registration', category: 'Registration',
+      issuer: 'Oregon DMV', license_number: 'TRL-OR-2024-33891',
+      cost: 120, renewal_cost: 120, issue_date: '2024-04-10', expiration_date: '2026-04-09',
+      renewal_period: 'Biennial', auto_renew: false, status: 'Active', active: true,
+      notes: 'Food trailer DMV registration' },
+    { name: 'Fire Suppression Inspection', category: 'Inspection',
+      issuer: 'Lincoln County Fire District', license_number: 'FSI-2025-0118',
+      cost: 200, renewal_cost: 200, issue_date: '2025-01-18', expiration_date: '2026-01-18',
+      renewal_period: 'Annual', auto_renew: false, status: 'Active', active: true,
+      notes: 'Annual hood suppression system inspection' },
+  ]);
   await query('INSERT INTO activity (message) VALUES ($1)', ['Production AI foundation seeded']);
   console.log('Seed complete. Login: admin/admin123 (or .env overrides)');
 }

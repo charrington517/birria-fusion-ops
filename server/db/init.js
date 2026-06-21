@@ -403,6 +403,25 @@ async function init() {
       sales_order_id INTEGER REFERENCES sales_orders(id),
       created_at     TIMESTAMPTZ DEFAULT NOW()
     );
+
+    -- Compliance records (licenses, permits, certifications, insurance, etc.)
+    CREATE TABLE IF NOT EXISTS compliance (
+      id                 SERIAL PRIMARY KEY,
+      name               TEXT NOT NULL,
+      category           TEXT,
+      issuer             TEXT,
+      license_number     TEXT,
+      cost               NUMERIC DEFAULT 0,
+      renewal_cost       NUMERIC DEFAULT 0,
+      issue_date         DATE,
+      expiration_date    DATE,
+      renewal_period     TEXT,
+      auto_renew         BOOLEAN DEFAULT false,
+      status             TEXT DEFAULT 'Active',
+      notes              TEXT,
+      active             BOOLEAN DEFAULT true,
+      created_at         TIMESTAMPTZ DEFAULT NOW()
+    );
   `);
   console.log('Database initialized.');
 }

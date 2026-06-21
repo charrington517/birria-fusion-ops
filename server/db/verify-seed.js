@@ -20,6 +20,7 @@ const EXPECTED = {
   compound_ingredient_components:   6,
   menu_item_compound_ingredients:   6,
   menu_item_ingredients:            17,
+  compliance:                       5,
 };
 
 // Expected FK linkages verified by name
@@ -380,6 +381,24 @@ async function verify() {
   nullSup.includes('Oaxaca Cheese') ? pass('Oaxaca Cheese supplier_id=null') : fail('Oaxaca Cheese supplier_id', 'expected null');
   nullSup.includes('Eggs')          ? pass('Eggs supplier_id=null')          : fail('Eggs supplier_id', 'expected null');
   nullSup.includes('Bolillo Roll')  ? pass('Bolillo Roll supplier_id=null')  : fail('Bolillo Roll supplier_id', 'expected null');
+
+  // ── Compliance assertions ───────────────────────────────────────────
+  console.log('\nCompliance assertions:');
+
+  const compRows = (await query('SELECT * FROM compliance ORDER BY name')).rows;
+  const cMap = Object.fromEntries(compRows.map(c => [c.name, c]));
+
+  compRows.length === 5 ? pass('compliance count: 5') : fail('compliance count', `expected 5, got ${compRows.length}`);
+  cMap['Lincoln County Mobile Food Unit Permit'] ? pass('Permit record exists') : fail('Permit record missing');
+  cMap['Oregon Food Handler Certification'] ? pass('Certification record exists') : fail('Certification record missing');
+  cMap['Commercial Auto Insurance'] ? pass('Insurance record exists') : fail('Insurance record missing');
+  cMap['Trailer Registration'] ? pass('Registration record exists') : fail('Registration record missing');
+  cMap['Fire Suppression Inspection'] ? pass('Inspection record exists') : fail('Inspection record missing');
+  cMap['Lincoln County Mobile Food Unit Permit']?.category === 'Permit' ? pass('Permit category correct') : fail('Permit category', cMap['Lincoln County Mobile Food Unit Permit']?.category);
+  cMap['Commercial Auto Insurance']?.auto_renew === true ? pass('Commercial Auto auto_renew=true') : fail('Commercial Auto auto_renew', cMap['Commercial Auto Insurance']?.auto_renew);
+  Number(cMap['Commercial Auto Insurance']?.renewal_cost) === 1900 ? pass('Commercial Auto renewal_cost=1900') : fail('Commercial Auto renewal_cost', cMap['Commercial Auto Insurance']?.renewal_cost);
+  cMap['Oregon Food Handler Certification']?.expiration_date ? pass('Certification has expiration_date') : fail('Certification expiration_date missing');
+  compRows.every(c => c.active === true) ? pass('all compliance records active=true') : fail('some compliance records inactive');
 
   // ── Summary ───────────────────────────────────────────────────────────────
   console.log(`\n${'─'.repeat(50)}`);
