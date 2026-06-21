@@ -1064,6 +1064,71 @@ function MenuItemModal({item,recipes,allCompounds,ingredients,api,onSave,onClose
 }
 
 // ── Vendors Page ──────────────────────────────────────────────────────────────
+// ── Vendors Page ──────────────────────────────────────────────────────────────
+function VendorCard({v, onEdit, onDelete}){
+  const [open,setOpen]=useState(false);
+  const VT_BG={'Distributor':'rgba(59,130,246,.2)','Local Vendor':'rgba(34,197,94,.18)','Wholesale Club':'rgba(168,85,247,.18)','Restaurant Supply':'rgba(249,115,22,.18)','Manufacturer':'rgba(255,255,255,.08)','Internal Production':'rgba(20,184,166,.18)'};
+  const VT_FG={'Distributor':'#93c5fd','Local Vendor':'#86efac','Wholesale Club':'#d8b4fe','Restaurant Supply':'#fed7aa','Manufacturer':'#a1a1aa','Internal Production':'#99f6e4'};
+  const vtBg=VT_BG[v.vendor_type]||'rgba(255,255,255,.08)';
+  const vtFg=VT_FG[v.vendor_type]||'#a1a1aa';
+  return <div className="card menu-card">
+    {/* ── Compact header ── */}
+    <div style={{cursor:'pointer'}} onClick={()=>setOpen(o=>!o)}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8,marginBottom:8}}>
+        <div style={{flex:1,minWidth:0}}>
+          <h3 style={{margin:'0 0 4px',fontSize:15}}>{v.name}</h3>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
+            {v.vendor_type&&<span className="badge" style={{background:vtBg,color:vtFg,fontSize:11}}>{v.vendor_type}</span>}
+            {v.category&&<span className="muted" style={{fontSize:12}}>{v.category}</span>}
+            {v.phone&&!open&&<span className="muted" style={{fontSize:12}}>{v.phone}</span>}
+          </div>
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+          <span className="badge" style={{background:v.active?'rgba(34,197,94,.18)':'rgba(239,68,68,.2)',color:v.active?'#86efac':'#fca5a5',fontSize:11}}>{v.active?'Active':'Inactive'}</span>
+          <span style={{fontSize:16,color:'#a1a1aa',userSelect:'none'}}>{open?'▲':'▼'}</span>
+        </div>
+      </div>
+      <div className="inv-grid">
+        <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Inventory</div><div style={{fontWeight:900}}>{v.linked_count||0}</div></div>
+        <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Low Stock</div><div style={{color:v.low_count>0?'#fde68a':'#a1a1aa',fontWeight:v.low_count>0?900:400}}>{v.low_count||0}</div></div>
+        <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Out of Stock</div><div style={{color:v.out_count>0?'#fca5a5':'#a1a1aa',fontWeight:v.out_count>0?900:400}}>{v.out_count||0}</div></div>
+        <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Lead Time</div><div>{v.lead_time_days?v.lead_time_days+' days':'\u2014'}</div></div>
+      </div>
+    </div>
+    {/* ── Expanded detail ── */}
+    {open&&<div style={{marginTop:12,paddingTop:12,borderTop:'1px solid rgba(255,255,255,.08)'}}>
+      {(v.contact_name||v.phone||v.email||v.website||v.address)&&<>
+        <div className="muted" style={{fontSize:11,marginBottom:6,textTransform:'uppercase',letterSpacing:'0.08em'}}>Contact</div>
+        <div className="profit-panel" style={{marginTop:0,marginBottom:10}}>
+          {v.contact_name&&<div className="profit-row" style={{fontSize:12}}><span className="muted">Name</span><span>{v.contact_name}</span></div>}
+          {v.phone&&<div className="profit-row" style={{fontSize:12}}><span className="muted">Phone</span><span>{v.phone}</span></div>}
+          {v.email&&<div className="profit-row" style={{fontSize:12}}><span className="muted">Email</span><span>{v.email}</span></div>}
+          {v.website&&<div className="profit-row" style={{fontSize:12}}><span className="muted">Website</span><span>{v.website}</span></div>}
+          {v.address&&<div className="profit-row" style={{fontSize:12}}><span className="muted">Address</span><span>{v.address}</span></div>}
+        </div>
+      </>}
+      {(v.default_order_day||v.delivery_days||v.minimum_order||v.payment_terms)&&<>
+        <div className="muted" style={{fontSize:11,marginBottom:6,textTransform:'uppercase',letterSpacing:'0.08em'}}>Ordering</div>
+        <div className="profit-panel" style={{marginTop:0,marginBottom:10}}>
+          {v.default_order_day&&<div className="profit-row" style={{fontSize:12}}><span className="muted">Order Day</span><span>{v.default_order_day}</span></div>}
+          {v.delivery_days&&<div className="profit-row" style={{fontSize:12}}><span className="muted">Delivery Days</span><span>{v.delivery_days}</span></div>}
+          {v.lead_time_days&&<div className="profit-row" style={{fontSize:12}}><span className="muted">Lead Time</span><span>{v.lead_time_days} days</span></div>}
+          {Number(v.minimum_order)>0&&<div className="profit-row" style={{fontSize:12}}><span className="muted">Minimum Order</span><span>${Number(v.minimum_order).toFixed(2)}</span></div>}
+          {v.payment_terms&&<div className="profit-row" style={{fontSize:12}}><span className="muted">Payment Terms</span><span>{v.payment_terms}</span></div>}
+        </div>
+      </>}
+      {v.notes&&<>
+        <div className="muted" style={{fontSize:11,marginBottom:6,textTransform:'uppercase',letterSpacing:'0.08em'}}>Notes</div>
+        <p className="muted" style={{fontSize:12,margin:'0 0 10px',fontStyle:'italic'}}>{v.notes}</p>
+      </>}
+    </div>}
+    <div className="actions" style={{marginTop:10}}>
+      <button onClick={e=>{e.stopPropagation();onEdit();}}>Edit</button>
+      <button className="danger" onClick={e=>{e.stopPropagation();onDelete();}}>Delete</button>
+    </div>
+  </div>;
+}
+
 function VendorsPage({vendors, api, refresh}){
   const [editing,setEditing]=useState(null);
   const [q,setQ]=useState('');
@@ -1078,47 +1143,13 @@ function VendorsPage({vendors, api, refresh}){
     <div className="card" style={{marginBottom:18,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}>
       <div><h3 style={{margin:'0 0 2px'}}>Vendors</h3><p className="muted" style={{margin:0}}>{filtered.length}{lq?' of '+vendors.length:''} vendors</p></div>
       <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search name, type, category…" style={{width:'min(220px,100%)',background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:10,padding:'8px 12px',fontSize:13}}/>
-        {q&&<button onClick={()=>setQ('')} style={{padding:'8px 10px',fontSize:12}}>✕</button>}
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search name, type, category\u2026" style={{width:'min(220px,100%)',background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:10,padding:'8px 12px',fontSize:13}}/>
+        {q&&<button onClick={()=>setQ('')} style={{padding:'8px 10px',fontSize:12}}>\u2715</button>}
         <button className="primary" onClick={()=>setEditing({})}>Add Vendor</button>
       </div>
     </div>
     <div className="grid cards">
-      {filtered.map(v=>{
-        const VT_BG={'Distributor':'rgba(59,130,246,.2)','Local Vendor':'rgba(34,197,94,.18)','Wholesale Club':'rgba(168,85,247,.18)','Restaurant Supply':'rgba(249,115,22,.18)','Manufacturer':'rgba(255,255,255,.08)','Internal Production':'rgba(20,184,166,.18)'};
-        const VT_FG={'Distributor':'#93c5fd','Local Vendor':'#86efac','Wholesale Club':'#d8b4fe','Restaurant Supply':'#fed7aa','Manufacturer':'#a1a1aa','Internal Production':'#99f6e4'};
-        const vtBg=VT_BG[v.vendor_type]||'rgba(255,255,255,.08)';
-        const vtFg=VT_FG[v.vendor_type]||'#a1a1aa';
-        return <div className="card" key={v.id}>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8,marginBottom:8}}>
-            <div style={{flex:1,minWidth:0}}>
-              <h3 style={{margin:'0 0 4px',fontSize:15}}>{v.name}</h3>
-              <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-                {v.vendor_type&&<span className="badge" style={{background:vtBg,color:vtFg,fontSize:11}}>{v.vendor_type}</span>}
-                {v.category&&<span className="muted" style={{fontSize:12}}>{v.category}</span>}
-              </div>
-            </div>
-            <span className="badge" style={{background:v.active?'rgba(34,197,94,.18)':'rgba(239,68,68,.2)',color:v.active?'#86efac':'#fca5a5',fontSize:11,flexShrink:0}}>{v.active?'Active':'Inactive'}</span>
-          </div>
-          <div className="inv-grid" style={{marginBottom:8}}>
-            <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Inventory Items</div><div style={{fontWeight:900}}>{v.linked_count||0}</div></div>
-            <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Low Stock</div><div style={{color:v.low_count>0?'#fde68a':'#a1a1aa',fontWeight:v.low_count>0?900:400}}>{v.low_count||0}</div></div>
-            <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Out of Stock</div><div style={{color:v.out_count>0?'#fca5a5':'#a1a1aa',fontWeight:v.out_count>0?900:400}}>{v.out_count||0}</div></div>
-            <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Lead Time</div><div>{v.lead_time_days?v.lead_time_days+' days':'—'}</div></div>
-          </div>
-          {(v.contact_name||v.phone||v.email)&&<div className="profit-panel" style={{marginTop:0,marginBottom:8}}>
-            {v.contact_name&&<div className="profit-row" style={{fontSize:12}}><span className="muted">Contact</span><span>{v.contact_name}</span></div>}
-            {v.phone&&<div className="profit-row" style={{fontSize:12}}><span className="muted">Phone</span><span>{v.phone}</span></div>}
-            {v.email&&<div className="profit-row" style={{fontSize:12}}><span className="muted">Email</span><span>{v.email}</span></div>}
-          </div>}
-          {(v.default_order_day||v.delivery_days)&&<p className="muted" style={{fontSize:12,margin:'0 0 8px'}}>
-            {v.default_order_day&&<span>Order: {v.default_order_day}</span>}
-            {v.default_order_day&&v.delivery_days&&<span>  </span>}
-            {v.delivery_days&&<span>Delivery: {v.delivery_days}</span>}
-          </p>}
-          <div className="actions"><button onClick={()=>setEditing(v)}>Edit</button><button className="danger" onClick={()=>del(v.id)}>Delete</button></div>
-        </div>;
-      })}
+      {filtered.map(v=><VendorCard key={v.id} v={v} onEdit={()=>setEditing(v)} onDelete={()=>del(v.id)}/>)}
     </div>
     {editing!==null&&<VendorModal vendor={editing} api={api} onClose={()=>setEditing(null)} onSaved={()=>{ setEditing(null); refresh(); }}/>}
   </>;
