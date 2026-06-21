@@ -7,7 +7,7 @@ function margin(price, cost) {
 }
 
 async function buildOverview() {
-  const [inventory, menu, catering, events, staff, equipment, suppliers, tasks, playbook, activity, ingredients, recipes, compounds, expenses] = await Promise.all([
+  const [inventory, menu, catering, events, staff, equipment, suppliers, tasks, playbook, activity, ingredients, recipes, compounds, expenses, compliance] = await Promise.all([
     query('SELECT * FROM inventory ORDER BY id DESC'),
     query('SELECT * FROM menu_items ORDER BY id DESC'),
     query('SELECT * FROM catering ORDER BY date NULLS LAST'),
@@ -21,7 +21,8 @@ async function buildOverview() {
     query('SELECT * FROM ingredients ORDER BY id DESC'),
     query('SELECT * FROM recipes ORDER BY id DESC'),
     query('SELECT * FROM compound_ingredients ORDER BY id DESC'),
-    query('SELECT * FROM expenses ORDER BY date DESC')
+    query('SELECT * FROM expenses ORDER BY date DESC'),
+    query('SELECT * FROM compliance WHERE active=true ORDER BY expiration_date NULLS LAST')
   ]);
 
   const inv = inventory.rows;
@@ -45,7 +46,29 @@ async function buildOverview() {
     return null;
   }).filter(Boolean);
 
+  const complianceAlerts = compliance.rows
+    .filter(c => c.expiration_date)
+    .map(c => {
+      const exp = new Date(c.expiration_date); exp.setHours(0,0,0,0);
+      const daysLeft = Math.ceil((exp - today) / 86400000);
+      if (exp < today)
+        return { level:'Critical', title:`${c.name} expired`,
+                 detail:`Expired ${c.expiration_date}. Category: ${c.category||''}`,
+                 action:'Renew immediately' };
+      if (exp <= in30) {
+        if (c.auto_renew)
+          return { level:'Info', title:`${c.name} auto-renewing soon`,
+                   detail:`Expires in ${daysLeft} day${daysLeft===1?'':'s'} (${c.expiration_date}). Auto-renewal enabled.`,
+                   action:'Verify auto-renewal' };
+        return { level:'Warning', title:`${c.name} expiring soon`,
+                 detail:`Expires in ${daysLeft} day${daysLeft===1?'':'s'} (${c.expiration_date})`,
+                 action:'Schedule renewal' };
+      }
+      return null;
+    }).filter(Boolean);
+
   const insights = [
+    ...complianceAlerts,
     ...membershipAlerts,
     ...low.map(x => ({ level:'Critical', title:`${x.name} is low`, detail:`${x.current_stock} ${x.unit} on hand. Minimum ${x.min_stock}.`, action:'Create purchase task' })),
     ...nearOvertime.map(x => ({ level:'Warning', title:`${x.name} is near overtime`, detail:`${x.hours} hours logged.`, action:'Review schedule' })),
@@ -98,7 +121,8 @@ async function buildOverview() {
       ingredients: ingredients.rows,
       recipes: recipes.rows,
       compounds: compounds.rows,
-      expenses: expenses.rows
+      expenses: expenses.rows,
+      compliance: compliance.rows
     }
   };
 }

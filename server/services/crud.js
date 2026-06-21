@@ -20,7 +20,8 @@ const tableMap = {
   'inventory-transactions': 'inventory_transactions',
   tasks: 'tasks',
   playbook: 'playbook',
-  activity: 'activity'
+  activity: 'activity',
+  compliance: 'compliance'
 };
 
 const writableFields = {
@@ -41,7 +42,8 @@ const writableFields = {
   'menu-item-compound-ingredients': ['menu_item_id','compound_ingredient_id','quantity','unit'],
   'menu-item-ingredients': ['menu_item_id','ingredient_id','quantity','unit'],
   tasks: ['title','category','status','priority','due_time','notes'],
-  playbook: ['title','category','content']
+  playbook: ['title','category','content'],
+  compliance: ['name','category','issuer','license_number','cost','renewal_cost','issue_date','expiration_date','renewal_period','auto_renew','status','notes','active']
 };
 
 function getTable(collection) {
