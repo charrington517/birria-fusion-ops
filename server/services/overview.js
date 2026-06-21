@@ -35,8 +35,18 @@ async function buildOverview() {
   const nearOvertime = staffRows.filter(x => Number(x.hours || 0) >= 38);
   const maint = equip.filter(x => String(x.status || '').toLowerCase().includes('maintenance'));
   const lowMargins = menuRows.filter(x => margin(x.price, x.cost) < 30);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const in30 = new Date(today); in30.setDate(in30.getDate()+30);
+  const membershipAlerts = suppliers.rows.filter(s => s.membership_required && s.membership_expiration).map(s => {
+    const exp = new Date(s.membership_expiration); exp.setHours(0,0,0,0);
+    const daysLeft = Math.ceil((exp - today) / 86400000);
+    if (exp < today) return { level:'Critical', title:`${s.name} membership expired`, detail:`Expired ${s.membership_expiration}`, action:'Renew membership' };
+    if (exp <= in30) return { level:'Warning', title:`${s.name} membership expiring soon`, detail:`Expires in ${daysLeft} day${daysLeft===1?'':'s'} (${s.membership_expiration})`, action:'Renew membership' };
+    return null;
+  }).filter(Boolean);
 
   const insights = [
+    ...membershipAlerts,
     ...low.map(x => ({ level:'Critical', title:`${x.name} is low`, detail:`${x.current_stock} ${x.unit} on hand. Minimum ${x.min_stock}.`, action:'Create purchase task' })),
     ...nearOvertime.map(x => ({ level:'Warning', title:`${x.name} is near overtime`, detail:`${x.hours} hours logged.`, action:'Review schedule' })),
     ...maint.map(x => ({ level:'Warning', title:`${x.name} needs maintenance`, detail:x.notes || x.status, action:'Schedule maintenance' })),

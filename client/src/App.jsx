@@ -1121,6 +1121,26 @@ function VendorCard({v, onEdit, onDelete}){
         <div className="muted" style={{fontSize:11,marginBottom:6,textTransform:'uppercase',letterSpacing:'0.08em'}}>Notes</div>
         <p className="muted" style={{fontSize:12,margin:'0 0 10px',fontStyle:'italic'}}>{v.notes}</p>
       </>}
+      {v.membership_required&&<>
+        <div className="muted" style={{fontSize:11,marginBottom:6,textTransform:'uppercase',letterSpacing:'0.08em'}}>Membership</div>
+        <div className="profit-panel" style={{marginTop:0,marginBottom:10}}>
+          {(() => {
+            const today = new Date(); today.setHours(0,0,0,0);
+            const in30 = new Date(today); in30.setDate(in30.getDate()+30);
+            let status='OK', bg='rgba(34,197,94,.18)', fg='#86efac';
+            if (v.membership_expiration) {
+              const exp = new Date(v.membership_expiration); exp.setHours(0,0,0,0);
+              if (exp < today) { status='Expired'; bg='rgba(239,68,68,.2)'; fg='#fca5a5'; }
+              else if (exp <= in30) { status='Expiring Soon'; bg='rgba(234,179,8,.18)'; fg='#fde68a'; }
+            }
+            return <>
+              <div className="profit-row" style={{fontSize:12}}><span className="muted">Required</span><span>Yes <span className="badge" style={{background:bg,color:fg,fontSize:10,padding:'2px 6px'}}>{status}</span></span></div>
+              {v.membership_number&&<div className="profit-row" style={{fontSize:12}}><span className="muted">Number</span><span>{v.membership_number}</span></div>}
+              {v.membership_expiration&&<div className="profit-row" style={{fontSize:12}}><span className="muted">Expires</span><span>{String(v.membership_expiration).slice(0,10)}</span></div>}
+            </>;
+          })()}
+        </div>
+      </>}
     </div>}
     <div className="actions" style={{marginTop:10}}>
       <button onClick={e=>{e.stopPropagation();onEdit();}}>Edit</button>
@@ -1164,7 +1184,10 @@ function VendorModal({vendor, api, onClose, onSaved}){
     website:vendor.website||'', address:vendor.address||'',
     delivery_days:vendor.delivery_days||'', default_order_day:vendor.default_order_day||'',
     lead_time_days:vendor.lead_time_days||1, minimum_order:vendor.minimum_order||0,
-    payment_terms:vendor.payment_terms||'', active:vendor.active!==false, notes:vendor.notes||''
+    payment_terms:vendor.payment_terms||'', active:vendor.active!==false, notes:vendor.notes||'',
+    membership_required:vendor.membership_required||false,
+    membership_number:vendor.membership_number||'',
+    membership_expiration:vendor.membership_expiration?String(vendor.membership_expiration).slice(0,10):''
   });
   const [saving,setSaving]=useState(false);
   const [error,setError]=useState('');
@@ -1206,6 +1229,12 @@ function VendorModal({vendor, api, onClose, onSaved}){
         <label><div className="muted">Payment Terms</div><input value={form.payment_terms} onChange={e=>set('payment_terms',e.target.value)} placeholder="COD, Net 30…"/></label>
       </div>
       <label><div className="muted">Notes</div><textarea value={form.notes} onChange={e=>set('notes',e.target.value)}/></label>
+      <div style={{fontWeight:900,fontSize:13,marginTop:4}}>Membership</div>
+      <label style={{display:'flex',alignItems:'center',gap:8}}><input type="checkbox" checked={form.membership_required} onChange={e=>set('membership_required',e.target.checked)} style={{width:'auto'}}/><span className="muted">Membership required</span></label>
+      {form.membership_required&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <label><div className="muted">Membership Number</div><input value={form.membership_number} onChange={e=>set('membership_number',e.target.value)}/></label>
+        <label><div className="muted">Expiration Date</div><input type="date" value={form.membership_expiration} onChange={e=>set('membership_expiration',e.target.value)} style={{background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:12,padding:'11px 13px',width:'100%'}}/></label>
+      </div>}
       {error&&<div className="badge red" style={{borderRadius:10,padding:'8px 12px'}}>{error}</div>}
       <button className="primary" onClick={save} disabled={saving}>{saving?'Saving…':'Save Vendor'}</button>
     </div>

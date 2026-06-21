@@ -283,6 +283,19 @@ async function init() {
       END IF;
     END $$;
 
+    -- Add membership fields to suppliers
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='suppliers' AND column_name='membership_required') THEN
+        ALTER TABLE suppliers ADD COLUMN membership_required BOOLEAN DEFAULT false;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='suppliers' AND column_name='membership_number') THEN
+        ALTER TABLE suppliers ADD COLUMN membership_number TEXT;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='suppliers' AND column_name='membership_expiration') THEN
+        ALTER TABLE suppliers ADD COLUMN membership_expiration DATE;
+      END IF;
+    END $$;
+
     -- Add supplier_id FK to inventory
     DO $$ BEGIN
       IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='inventory' AND column_name='supplier_id') THEN
