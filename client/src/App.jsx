@@ -160,7 +160,7 @@ function App(){
         {page==='today'       && <Today overview={overview}/>}
         {page==='ai'          && <AiPage aiPrompt={aiPrompt} setAiPrompt={setAiPrompt} aiAnswer={aiAnswer} setAiAnswer={setAiAnswer} api={auth.api}/>}
         {page==='inventory'   && <InventoryPage items={data} suppliers={Array.isArray(overview?.data?.suppliers)?overview.data.suppliers:[]} api={auth.api} refresh={refresh}/>}
-        {page==='ingredients' && <IngredientsPage ingredients={data} inventory={overview.data.inventory||[]} api={auth.api} refresh={refresh}/>}
+        {page==='ingredients' && <IngredientsPage ingredients={data} inventory={overview.data.inventory||[]} suppliers={Array.isArray(overview?.data?.suppliers)?overview.data.suppliers:[]} api={auth.api} refresh={refresh}/>}
         {page==='compounds'   && <CompoundsPage compounds={data} ingredients={overview.data.ingredients||[]} allCompounds={overview.data.compounds||[]} api={auth.api} refresh={refresh}/>}
         {page==='recipes'     && <RecipesPage recipes={data} ingredients={overview.data.ingredients||[]} api={auth.api} refresh={refresh}/>}
         {page==='menu'        && <MenuPage menuItems={data} recipes={overview.data.recipes||[]} allCompounds={overview.data.compounds||[]} ingredients={overview.data.ingredients||[]} api={auth.api} refresh={refresh}/>}
@@ -528,23 +528,33 @@ function InventoryModal({item,onSave,onClose,suppliers=[]}){
 }
 
 // ── Ingredients Page ────────────────────────────────────────────────────────────
-function IngredientsPage({ingredients,inventory,api,refresh}){
+function IngredientsPage({ingredients,inventory,suppliers=[],api,refresh}){
   const [editing,setEditing]=useState(null);
   const [q,setQ]=useState('');
+  const [linkFilter,setLinkFilter]=useState('');
   const invMap=Object.fromEntries(inventory.map(i=>[String(i.id),i]));
+  const supMap=Object.fromEntries(suppliers.map(s=>[s.id,s.name]));
   async function save(form){ const id=form.id; await api(`/api/ingredients${id?`/${id}`:''}`,{method:id?'PUT':'POST',body:JSON.stringify(form)}); setEditing(null); await refresh(); }
   async function del(id){ if(!confirm('Delete ingredient?')) return; await api(`/api/ingredients/${id}`,{method:'DELETE'}); await refresh(); }
   const lq=q.toLowerCase();
-  const filtered=lq?ingredients.filter(i=>
+  let filtered=lq?ingredients.filter(i=>
     i.name.toLowerCase().includes(lq)||
     (i.category||'').toLowerCase().includes(lq)
   ):ingredients;
+  if(linkFilter==='linked')  filtered=filtered.filter(i=>i.inventory_item_id);
+  if(linkFilter==='missing') filtered=filtered.filter(i=>!i.inventory_item_id);
+  const total=ingredients.length; const active=lq||linkFilter;
   return <>
     <div className="card" style={{marginBottom:18,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}>
-      <div><h3 style={{margin:'0 0 2px'}}>Ingredients</h3><p className="muted" style={{margin:0}}>{filtered.length}{lq?' of '+ingredients.length:''} records</p></div>
+      <div><h3 style={{margin:'0 0 2px'}}>Ingredients</h3><p className="muted" style={{margin:0}}>{filtered.length}{active?' of '+total:''} records</p></div>
       <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search name or category…" style={{width:'min(220px,100%)',background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:10,padding:'8px 12px',fontSize:13}}/>
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search name or category…" style={{width:'min(180px,100%)',background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:10,padding:'8px 12px',fontSize:13}}/>
         {q&&<button onClick={()=>setQ('')} style={{padding:'8px 10px',fontSize:12}}>✕</button>}
+        <select value={linkFilter} onChange={e=>setLinkFilter(e.target.value)} style={{background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:10,padding:'8px 10px',fontSize:13}}>
+          <option value=''>All Ingredients</option>
+          <option value='linked'>Linked To Inventory</option>
+          <option value='missing'>Missing Inventory Link</option>
+        </select>
         <button className="primary" onClick={()=>setEditing({})}>Add Ingredient</button>
       </div>
     </div>
@@ -553,13 +563,19 @@ function IngredientsPage({ingredients,inventory,api,refresh}){
         const spp=Number(ing.servings_per_purchase)||1;
         const cps=(Number(ing.cost)||0)/spp;
         const inv=invMap[String(ing.inventory_item_id)];
+        const vendorName=inv?supMap[inv.supplier_id]||null:null;
         return <div className="card" key={ing.id}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
             <h3 style={{margin:0}}>{ing.name}</h3>
-            <span className="muted" style={{fontSize:12}}>{ing.category}</span>
+            <div style={{display:'flex',gap:6,flexWrap:'wrap',justifyContent:'flex-end'}}>
+              <span className="muted" style={{fontSize:12}}>{ing.category}</span>
+              {!ing.inventory_item_id&&<span className="badge" style={{background:'rgba(239,68,68,.2)',color:'#fca5a5',fontSize:10}}>Missing Inventory Link</span>}
+            </div>
           </div>
           <div className="profit-panel" style={{marginTop:10}}>
-            <div className="profit-row"><span className="muted">Inventory Source</span><span>{inv?`${inv.name} (${inv.unit})`:<span style={{color:'#fca5a5',fontSize:12}}>not linked</span>}</span></div>
+            <div className="profit-row"><span className="muted">Inventory Item</span><span>{inv?inv.name:<span style={{color:'#52525b',fontSize:12}}>Not linked</span>}</span></div>
+            {inv&&<div className="profit-row"><span className="muted">Vendor</span><span>{vendorName||<span style={{color:'#52525b',fontSize:12}}>Not assigned</span>}</span></div>}
+            {inv&&<div className="profit-row"><span className="muted">Stock</span><span style={{color:Number(inv.current_stock)>0?'#86efac':'#fca5a5'}}>{Number(inv.current_stock).toFixed(2)} {inv.unit}</span></div>}
             <div className="profit-row"><span className="muted">Purchase Cost</span><span>{money(ing.cost)} / {ing.unit}</span></div>
             <div className="profit-row"><span className="muted">Servings / Purchase</span><span>{spp}</span></div>
             <div className="profit-row"><span className="muted">Cost Per Serving</span><span style={{color:'#86efac',fontWeight:900}}>{money(cps)} / {ing.unit}</span></div>
