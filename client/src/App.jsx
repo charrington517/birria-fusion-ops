@@ -19,7 +19,7 @@ const navGroups = [
   { label: 'Office', items: [
     ['expenses',   ShieldCheck,  'Expenses'],
     ['staff',      Users,        'Staff'],
-    ['suppliers',  Truck,        'Suppliers'],
+    ['suppliers',  Truck,        'Vendors'],
     ['equipment',  Wrench,       'Equipment'],
     ['tasks',      ShieldCheck,  'Tasks'],
   ]},
@@ -36,6 +36,9 @@ const MENU_CATEGORIES = ['Entree','Appetizer','Side','Beverage','Dessert','Sauce
 const UNIT_OPTIONS    = ['lb','oz','kg','g','each','pack','case','bunch','slice','serving','qt','cup','tbsp','tsp','ml','liter'];
 const RECIPE_CATEGORIES = ['Prep','Service','Signature','Sauce','Base','Fusion','Sandwich','Other'];
 const COMPOUND_CATEGORIES = ['Broth','Protein','Sauce','Mix','Base','Marinade','Other'];
+const VENDOR_TYPES = ['Distributor','Local Vendor','Wholesale Club','Restaurant Supply','Manufacturer','Internal Production','Other'];
+const VENDOR_CATEGORIES = ['Meat','Produce','Dairy','Dry Goods','Bakery','Packaging','Restaurant Supply','Beverage','Equipment','Bulk','Food/Supplies','Prep','Other'];
+const ORDER_DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 
 const fields = {
   catering:  ['client','date','guests','status','value','deposit','location','service_type','notes','readiness'],
@@ -161,7 +164,8 @@ function App(){
         {page==='recipes'     && <RecipesPage recipes={data} ingredients={overview.data.ingredients||[]} api={auth.api} refresh={refresh}/>}
         {page==='menu'        && <MenuPage menuItems={data} recipes={overview.data.recipes||[]} allCompounds={overview.data.compounds||[]} ingredients={overview.data.ingredients||[]} api={auth.api} refresh={refresh}/>}
         {page==='events'      && <EventsPage events={data} menuItems={overview.data.menu||[]} api={auth.api} refresh={refresh} setModal={setModal} remove={remove}/>}
-        {page!=='today'&&page!=='ai'&&page!=='inventory'&&page!=='ingredients'&&page!=='compounds'&&page!=='recipes'&&page!=='menu'&&page!=='events'&&
+        {page==='suppliers'   && <VendorsPage vendors={data} api={auth.api} refresh={refresh}/>}
+        {page!=='today'&&page!=='ai'&&page!=='inventory'&&page!=='ingredients'&&page!=='compounds'&&page!=='recipes'&&page!=='menu'&&page!=='events'&&page!=='suppliers'&&
           <Collection page={page} data={data} setModal={setModal} remove={remove}/>}
       </section>
     </main>
@@ -1055,6 +1059,124 @@ function MenuItemModal({item,recipes,allCompounds,ingredients,api,onSave,onClose
       <label><div className="muted">Prep Notes</div><textarea value={form.prep_notes} onChange={e=>set('prep_notes',e.target.value)}/></label>
       {saveError && <div className="badge red" style={{borderRadius:10,padding:'8px 12px'}}>{saveError}</div>}
       <button className="primary" onClick={save} disabled={saving}>{saving?'Saving…':'Save Item'}</button>
+    </div>
+  </div></div>;
+}
+
+// ── Vendors Page ──────────────────────────────────────────────────────────────
+function VendorsPage({vendors, api, refresh}){
+  const [editing,setEditing]=useState(null);
+  const [q,setQ]=useState('');
+  async function del(id){ if(!confirm('Delete this vendor?')) return; await api(`/api/suppliers/${id}`,{method:'DELETE'}); await refresh(); }
+  const lq=q.toLowerCase();
+  const filtered=lq?vendors.filter(v=>
+    (v.name||'').toLowerCase().includes(lq)||
+    (v.vendor_type||'').toLowerCase().includes(lq)||
+    (v.category||'').toLowerCase().includes(lq)
+  ):vendors;
+  return <>
+    <div className="card" style={{marginBottom:18,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}>
+      <div><h3 style={{margin:'0 0 2px'}}>Vendors</h3><p className="muted" style={{margin:0}}>{filtered.length}{lq?' of '+vendors.length:''} vendors</p></div>
+      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search name, type, category…" style={{width:'min(220px,100%)',background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:10,padding:'8px 12px',fontSize:13}}/>
+        {q&&<button onClick={()=>setQ('')} style={{padding:'8px 10px',fontSize:12}}>✕</button>}
+        <button className="primary" onClick={()=>setEditing({})}>Add Vendor</button>
+      </div>
+    </div>
+    <div className="grid cards">
+      {filtered.map(v=>{
+        const VT_BG={'Distributor':'rgba(59,130,246,.2)','Local Vendor':'rgba(34,197,94,.18)','Wholesale Club':'rgba(168,85,247,.18)','Restaurant Supply':'rgba(249,115,22,.18)','Manufacturer':'rgba(255,255,255,.08)','Internal Production':'rgba(20,184,166,.18)'};
+        const VT_FG={'Distributor':'#93c5fd','Local Vendor':'#86efac','Wholesale Club':'#d8b4fe','Restaurant Supply':'#fed7aa','Manufacturer':'#a1a1aa','Internal Production':'#99f6e4'};
+        const vtBg=VT_BG[v.vendor_type]||'rgba(255,255,255,.08)';
+        const vtFg=VT_FG[v.vendor_type]||'#a1a1aa';
+        return <div className="card" key={v.id}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8,marginBottom:8}}>
+            <div style={{flex:1,minWidth:0}}>
+              <h3 style={{margin:'0 0 4px',fontSize:15}}>{v.name}</h3>
+              <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                {v.vendor_type&&<span className="badge" style={{background:vtBg,color:vtFg,fontSize:11}}>{v.vendor_type}</span>}
+                {v.category&&<span className="muted" style={{fontSize:12}}>{v.category}</span>}
+              </div>
+            </div>
+            <span className="badge" style={{background:v.active?'rgba(34,197,94,.18)':'rgba(239,68,68,.2)',color:v.active?'#86efac':'#fca5a5',fontSize:11,flexShrink:0}}>{v.active?'Active':'Inactive'}</span>
+          </div>
+          <div className="inv-grid" style={{marginBottom:8}}>
+            <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Inventory Items</div><div style={{fontWeight:900}}>{v.linked_count||0}</div></div>
+            <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Low Stock</div><div style={{color:v.low_count>0?'#fde68a':'#a1a1aa',fontWeight:v.low_count>0?900:400}}>{v.low_count||0}</div></div>
+            <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Out of Stock</div><div style={{color:v.out_count>0?'#fca5a5':'#a1a1aa',fontWeight:v.out_count>0?900:400}}>{v.out_count||0}</div></div>
+            <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Lead Time</div><div>{v.lead_time_days?v.lead_time_days+' days':'—'}</div></div>
+          </div>
+          {(v.contact_name||v.phone||v.email)&&<div className="profit-panel" style={{marginTop:0,marginBottom:8}}>
+            {v.contact_name&&<div className="profit-row" style={{fontSize:12}}><span className="muted">Contact</span><span>{v.contact_name}</span></div>}
+            {v.phone&&<div className="profit-row" style={{fontSize:12}}><span className="muted">Phone</span><span>{v.phone}</span></div>}
+            {v.email&&<div className="profit-row" style={{fontSize:12}}><span className="muted">Email</span><span>{v.email}</span></div>}
+          </div>}
+          {(v.default_order_day||v.delivery_days)&&<p className="muted" style={{fontSize:12,margin:'0 0 8px'}}>
+            {v.default_order_day&&<span>Order: {v.default_order_day}</span>}
+            {v.default_order_day&&v.delivery_days&&<span>  </span>}
+            {v.delivery_days&&<span>Delivery: {v.delivery_days}</span>}
+          </p>}
+          <div className="actions"><button onClick={()=>setEditing(v)}>Edit</button><button className="danger" onClick={()=>del(v.id)}>Delete</button></div>
+        </div>;
+      })}
+    </div>
+    {editing!==null&&<VendorModal vendor={editing} api={api} onClose={()=>setEditing(null)} onSaved={()=>{ setEditing(null); refresh(); }}/>}
+  </>;
+}
+
+function VendorModal({vendor, api, onClose, onSaved}){
+  const isNew=!vendor.id;
+  const [form,setForm]=useState({
+    name:vendor.name||'', category:vendor.category||'',
+    vendor_type:vendor.vendor_type||'',
+    contact_name:vendor.contact_name||'', phone:vendor.phone||'', email:vendor.email||'',
+    website:vendor.website||'', address:vendor.address||'',
+    delivery_days:vendor.delivery_days||'', default_order_day:vendor.default_order_day||'',
+    lead_time_days:vendor.lead_time_days||1, minimum_order:vendor.minimum_order||0,
+    payment_terms:vendor.payment_terms||'', active:vendor.active!==false, notes:vendor.notes||''
+  });
+  const [saving,setSaving]=useState(false);
+  const [error,setError]=useState('');
+  function set(k,v){ setForm(f=>({...f,[k]:v})); }
+  async function save(){
+    if(!form.name.trim()){ setError('Name is required.'); return; }
+    setSaving(true); setError('');
+    try {
+      await api(`/api/suppliers${vendor.id?`/${vendor.id}`:''}`,{method:vendor.id?'PUT':'POST',body:JSON.stringify(form)});
+      onSaved();
+    } catch(e){ setError(e.message||'Save failed.'); }
+    finally{ setSaving(false); }
+  }
+  return <div className="modal"><div className="modal-card" style={{maxHeight:'90vh',overflowY:'auto'}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}><h3 style={{margin:0}}>{isNew?'Add':'Edit'} Vendor</h3><button onClick={onClose}>×</button></div>
+    <div className="form">
+      <label><div className="muted">Name</div><input value={form.name} onChange={e=>set('name',e.target.value)}/></label>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <label><div className="muted">Vendor Type</div><Sel value={form.vendor_type} onChange={v=>set('vendor_type',v)} options={VENDOR_TYPES}/></label>
+        <label><div className="muted">Category</div><Sel value={form.category} onChange={v=>set('category',v)} options={VENDOR_CATEGORIES}/></label>
+      </div>
+      <label style={{display:'flex',alignItems:'center',gap:8}}><input type="checkbox" checked={form.active} onChange={e=>set('active',e.target.checked)} style={{width:'auto'}}/><span className="muted">Active vendor</span></label>
+      <div style={{fontWeight:900,fontSize:13,marginTop:4}}>Contact</div>
+      <label><div className="muted">Contact Name</div><input value={form.contact_name} onChange={e=>set('contact_name',e.target.value)}/></label>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <label><div className="muted">Phone</div><input value={form.phone} onChange={e=>set('phone',e.target.value)}/></label>
+        <label><div className="muted">Email</div><input value={form.email} onChange={e=>set('email',e.target.value)}/></label>
+      </div>
+      <label><div className="muted">Website</div><input value={form.website} onChange={e=>set('website',e.target.value)}/></label>
+      <label><div className="muted">Address</div><input value={form.address} onChange={e=>set('address',e.target.value)}/></label>
+      <div style={{fontWeight:900,fontSize:13,marginTop:4}}>Order Logistics</div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <label><div className="muted">Default Order Day</div><Sel value={form.default_order_day} onChange={v=>set('default_order_day',v)} options={ORDER_DAYS}/></label>
+        <label><div className="muted">Lead Time (days)</div><input type="number" min="1" value={form.lead_time_days} onChange={e=>set('lead_time_days',e.target.value)}/></label>
+      </div>
+      <label><div className="muted">Delivery Days</div><input value={form.delivery_days} onChange={e=>set('delivery_days',e.target.value)} placeholder="Mon, Wed, Fri"/></label>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <label><div className="muted">Minimum Order ($)</div><input type="number" step="0.01" value={form.minimum_order} onChange={e=>set('minimum_order',e.target.value)}/></label>
+        <label><div className="muted">Payment Terms</div><input value={form.payment_terms} onChange={e=>set('payment_terms',e.target.value)} placeholder="COD, Net 30…"/></label>
+      </div>
+      <label><div className="muted">Notes</div><textarea value={form.notes} onChange={e=>set('notes',e.target.value)}/></label>
+      {error&&<div className="badge red" style={{borderRadius:10,padding:'8px 12px'}}>{error}</div>}
+      <button className="primary" onClick={save} disabled={saving}>{saving?'Saving…':'Save Vendor'}</button>
     </div>
   </div></div>;
 }
