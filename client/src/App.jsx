@@ -17,9 +17,10 @@ const navGroups = [
     ['catering',   ClipboardList,'Catering'],
   ]},
   { label: 'Office', items: [
-    ['expenses',   ShieldCheck,  'Expenses'],
-    ['staff',      Users,        'Staff'],
     ['suppliers',  Truck,        'Vendors'],
+    ['compliance', ShieldCheck,  'Compliance'],
+    ['staff',      Users,        'Staff'],
+    ['expenses',   ShieldCheck,  'Expenses'],
     ['equipment',  Wrench,       'Equipment'],
     ['tasks',      ShieldCheck,  'Tasks'],
   ]},
@@ -165,7 +166,8 @@ function App(){
         {page==='menu'        && <MenuPage menuItems={data} recipes={overview.data.recipes||[]} allCompounds={overview.data.compounds||[]} ingredients={overview.data.ingredients||[]} api={auth.api} refresh={refresh}/>}
         {page==='events'      && <EventsPage events={data} menuItems={overview.data.menu||[]} api={auth.api} refresh={refresh} setModal={setModal} remove={remove}/>}
         {page==='suppliers'   && <VendorsPage vendors={data} api={auth.api} refresh={refresh}/>}
-        {page!=='today'&&page!=='ai'&&page!=='inventory'&&page!=='ingredients'&&page!=='compounds'&&page!=='recipes'&&page!=='menu'&&page!=='events'&&page!=='suppliers'&&
+        {page==='compliance'  && <CompliancePage compliance={overview.data.compliance||[]} api={auth.api} refresh={refresh}/>}
+        {page!=='today'&&page!=='ai'&&page!=='inventory'&&page!=='ingredients'&&page!=='compounds'&&page!=='recipes'&&page!=='menu'&&page!=='events'&&page!=='suppliers'&&page!=='compliance'&&
           <Collection page={page} data={data} setModal={setModal} remove={remove}/>}
       </section>
     </main>
@@ -1237,6 +1239,179 @@ function VendorModal({vendor, api, onClose, onSaved}){
       </div>}
       {error&&<div className="badge red" style={{borderRadius:10,padding:'8px 12px'}}>{error}</div>}
       <button className="primary" onClick={save} disabled={saving}>{saving?'Saving…':'Save Vendor'}</button>
+    </div>
+  </div></div>;
+}
+
+// ── Compliance Page ───────────────────────────────────────────────────────────
+function complianceStatus(expiration_date) {
+  if (!expiration_date) return { label: 'No Expiration', bg: 'rgba(255,255,255,.08)', fg: '#a1a1aa' };
+  const today = new Date(); today.setHours(0,0,0,0);
+  const in30  = new Date(today); in30.setDate(in30.getDate()+30);
+  const exp   = new Date(expiration_date); exp.setHours(0,0,0,0);
+  if (exp < today)  return { label: 'Expired',       bg: 'rgba(239,68,68,.2)',    fg: '#fca5a5' };
+  if (exp <= in30)  return { label: 'Expiring Soon', bg: 'rgba(234,179,8,.18)',   fg: '#fde68a' };
+  return               { label: 'Active',         bg: 'rgba(34,197,94,.18)',   fg: '#86efac' };
+}
+
+const COMP_CAT_BG = {
+  'License':       'rgba(59,130,246,.2)',
+  'Permit':        'rgba(249,115,22,.18)',
+  'Certification': 'rgba(20,184,166,.18)',
+  'Insurance':     'rgba(168,85,247,.18)',
+  'Registration':  'rgba(255,255,255,.08)',
+  'Membership':    'rgba(34,197,94,.18)',
+  'Inspection':    'rgba(234,179,8,.18)',
+  'Other':         'rgba(255,255,255,.08)',
+};
+const COMP_CAT_FG = {
+  'License': '#93c5fd', 'Permit': '#fed7aa', 'Certification': '#99f6e4',
+  'Insurance': '#d8b4fe', 'Registration': '#a1a1aa', 'Membership': '#86efac',
+  'Inspection': '#fde68a', 'Other': '#a1a1aa',
+};
+const COMPLIANCE_CATEGORIES = ['License','Permit','Certification','Insurance','Registration','Membership','Inspection','Other'];
+
+function ComplianceCard({rec, onEdit, onDelete}){
+  const [open,setOpen]=useState(false);
+  const st = complianceStatus(rec.expiration_date);
+  const catBg = COMP_CAT_BG[rec.category]||'rgba(255,255,255,.08)';
+  const catFg = COMP_CAT_FG[rec.category]||'#a1a1aa';
+  return <div className="card menu-card">
+    {/* ── Collapsed header ── */}
+    <div style={{cursor:'pointer'}} onClick={()=>setOpen(o=>!o)}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8,marginBottom:6}}>
+        <div style={{flex:1,minWidth:0}}>
+          <h3 style={{margin:'0 0 4px',fontSize:15}}>{rec.name}</h3>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
+            {rec.category&&<span className="badge" style={{background:catBg,color:catFg,fontSize:11}}>{rec.category}</span>}
+            <span className="badge" style={{background:st.bg,color:st.fg,fontSize:11}}>{st.label}</span>
+          </div>
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+          <span style={{fontSize:16,color:'#a1a1aa',userSelect:'none'}}>{open?'▲':'▼'}</span>
+        </div>
+      </div>
+      <div style={{display:'flex',gap:16,flexWrap:'wrap'}}>
+        {rec.expiration_date&&<span className="muted" style={{fontSize:12}}>Expires: {String(rec.expiration_date).slice(0,10)}</span>}
+        {Number(rec.renewal_cost)>0&&<span className="muted" style={{fontSize:12}}>Renewal: ${Number(rec.renewal_cost).toFixed(2)}</span>}
+      </div>
+    </div>
+    {/* ── Expanded detail ── */}
+    {open&&<div style={{marginTop:12,paddingTop:12,borderTop:'1px solid rgba(255,255,255,.08)'}}>
+      {(rec.issuer||rec.license_number)&&<>
+        <div className="muted" style={{fontSize:11,marginBottom:6,textTransform:'uppercase',letterSpacing:'0.08em'}}>Basic</div>
+        <div className="profit-panel" style={{marginTop:0,marginBottom:10}}>
+          {rec.issuer&&<div className="profit-row" style={{fontSize:12}}><span className="muted">Issuer</span><span>{rec.issuer}</span></div>}
+          {rec.license_number&&<div className="profit-row" style={{fontSize:12}}><span className="muted">License / Number</span><span>{rec.license_number}</span></div>}
+        </div>
+      </>}
+      {(rec.issue_date||rec.expiration_date||rec.renewal_period||rec.auto_renew)&&<>
+        <div className="muted" style={{fontSize:11,marginBottom:6,textTransform:'uppercase',letterSpacing:'0.08em'}}>Dates</div>
+        <div className="profit-panel" style={{marginTop:0,marginBottom:10}}>
+          {rec.issue_date&&<div className="profit-row" style={{fontSize:12}}><span className="muted">Issue Date</span><span>{String(rec.issue_date).slice(0,10)}</span></div>}
+          {rec.expiration_date&&<div className="profit-row" style={{fontSize:12}}><span className="muted">Expiration</span><span style={{color:st.fg}}>{String(rec.expiration_date).slice(0,10)}</span></div>}
+          {rec.renewal_period&&<div className="profit-row" style={{fontSize:12}}><span className="muted">Renewal Period</span><span>{rec.renewal_period}</span></div>}
+          <div className="profit-row" style={{fontSize:12}}><span className="muted">Auto Renew</span><span style={{color:rec.auto_renew?'#86efac':'#a1a1aa'}}>{rec.auto_renew?'Yes':'No'}</span></div>
+        </div>
+      </>}
+      {(Number(rec.cost)>0||Number(rec.renewal_cost)>0)&&<>
+        <div className="muted" style={{fontSize:11,marginBottom:6,textTransform:'uppercase',letterSpacing:'0.08em'}}>Cost</div>
+        <div className="profit-panel" style={{marginTop:0,marginBottom:10}}>
+          {Number(rec.cost)>0&&<div className="profit-row" style={{fontSize:12}}><span className="muted">Original Cost</span><span>${Number(rec.cost).toFixed(2)}</span></div>}
+          {Number(rec.renewal_cost)>0&&<div className="profit-row" style={{fontSize:12}}><span className="muted">Renewal Cost</span><span>${Number(rec.renewal_cost).toFixed(2)}</span></div>}
+        </div>
+      </>}
+      {rec.notes&&<>
+        <div className="muted" style={{fontSize:11,marginBottom:6,textTransform:'uppercase',letterSpacing:'0.08em'}}>Notes</div>
+        <p className="muted" style={{fontSize:12,margin:'0 0 10px',fontStyle:'italic'}}>{rec.notes}</p>
+      </>}
+    </div>}
+    <div className="actions" style={{marginTop:10}}>
+      <button onClick={e=>{e.stopPropagation();onEdit();}}>Edit</button>
+      <button className="danger" onClick={e=>{e.stopPropagation();onDelete();}}>Delete</button>
+    </div>
+  </div>;
+}
+
+function CompliancePage({compliance, api, refresh}){
+  const [editing,setEditing]=useState(null);
+  const [q,setQ]=useState('');
+  async function del(id){ if(!confirm('Delete this compliance record?')) return; await api(`/api/compliance/${id}`,{method:'DELETE'}); await refresh(); }
+  const lq=q.toLowerCase();
+  const filtered=lq?compliance.filter(c=>
+    (c.name||'').toLowerCase().includes(lq)||
+    (c.issuer||'').toLowerCase().includes(lq)||
+    (c.category||'').toLowerCase().includes(lq)
+  ):compliance;
+  return <>
+    <div className="card" style={{marginBottom:18,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}>
+      <div><h3 style={{margin:'0 0 2px'}}>Compliance</h3><p className="muted" style={{margin:0}}>{filtered.length}{lq?' of '+compliance.length:''} records</p></div>
+      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search name, issuer, category\u2026" style={{width:'min(220px,100%)',background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:10,padding:'8px 12px',fontSize:13}}/>
+        {q&&<button onClick={()=>setQ('')} style={{padding:'8px 10px',fontSize:12}}>\u2715</button>}
+        <button className="primary" onClick={()=>setEditing({})}>Add Record</button>
+      </div>
+    </div>
+    <div className="grid cards">
+      {filtered.map(rec=><ComplianceCard key={rec.id} rec={rec} onEdit={()=>setEditing(rec)} onDelete={()=>del(rec.id)}/>)}
+    </div>
+    {editing!==null&&<ComplianceModal record={editing} api={api} onClose={()=>setEditing(null)} onSaved={()=>{ setEditing(null); refresh(); }}/>}
+  </>;
+}
+
+function ComplianceModal({record, api, onClose, onSaved}){
+  const isNew=!record.id;
+  const [form,setForm]=useState({
+    name:record.name||'', category:record.category||'',
+    issuer:record.issuer||'', license_number:record.license_number||'',
+    cost:record.cost||0, renewal_cost:record.renewal_cost||0,
+    issue_date:record.issue_date?String(record.issue_date).slice(0,10):'',
+    expiration_date:record.expiration_date?String(record.expiration_date).slice(0,10):'',
+    renewal_period:record.renewal_period||'Annual',
+    auto_renew:record.auto_renew||false,
+    notes:record.notes||'', active:record.active!==false
+  });
+  const [saving,setSaving]=useState(false);
+  const [error,setError]=useState('');
+  function set(k,v){ setForm(f=>({...f,[k]:v})); }
+  const ds={background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:12,padding:'11px 13px',width:'100%'};
+  async function save(){
+    if(!form.name.trim()){ setError('Name is required.'); return; }
+    setSaving(true); setError('');
+    try {
+      await api(`/api/compliance${record.id?`/${record.id}`:''}`,{method:record.id?'PUT':'POST',body:JSON.stringify(form)});
+      onSaved();
+    } catch(e){ setError(e.message||'Save failed.'); }
+    finally{ setSaving(false); }
+  }
+  return <div className="modal"><div className="modal-card" style={{maxHeight:'90vh',overflowY:'auto'}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}><h3 style={{margin:0}}>{isNew?'Add':'Edit'} Compliance Record</h3><button onClick={onClose}>\u00d7</button></div>
+    <div className="form">
+      <label><div className="muted">Name</div><input value={form.name} onChange={e=>set('name',e.target.value)}/></label>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <label><div className="muted">Category</div><Sel value={form.category} onChange={v=>set('category',v)} options={COMPLIANCE_CATEGORIES}/></label>
+        <label style={{display:'flex',alignItems:'center',gap:8,paddingTop:20}}><input type="checkbox" checked={form.active} onChange={e=>set('active',e.target.checked)} style={{width:'auto'}}/><span className="muted">Active</span></label>
+      </div>
+      <div style={{fontWeight:900,fontSize:13,marginTop:4}}>Basic</div>
+      <label><div className="muted">Issuer</div><input value={form.issuer} onChange={e=>set('issuer',e.target.value)}/></label>
+      <label><div className="muted">License / Number</div><input value={form.license_number} onChange={e=>set('license_number',e.target.value)}/></label>
+      <div style={{fontWeight:900,fontSize:13,marginTop:4}}>Dates</div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <label><div className="muted">Issue Date</div><input type="date" value={form.issue_date} onChange={e=>set('issue_date',e.target.value)} style={ds}/></label>
+        <label><div className="muted">Expiration Date</div><input type="date" value={form.expiration_date} onChange={e=>set('expiration_date',e.target.value)} style={ds}/></label>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <label><div className="muted">Renewal Period</div><input value={form.renewal_period} onChange={e=>set('renewal_period',e.target.value)} placeholder="Annual, 2 years\u2026"/></label>
+        <label style={{display:'flex',alignItems:'center',gap:8,paddingTop:20}}><input type="checkbox" checked={form.auto_renew} onChange={e=>set('auto_renew',e.target.checked)} style={{width:'auto'}}/><span className="muted">Auto-renew</span></label>
+      </div>
+      <div style={{fontWeight:900,fontSize:13,marginTop:4}}>Cost</div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <label><div className="muted">Original Cost ($)</div><input type="number" step="0.01" value={form.cost} onChange={e=>set('cost',e.target.value)}/></label>
+        <label><div className="muted">Renewal Cost ($)</div><input type="number" step="0.01" value={form.renewal_cost} onChange={e=>set('renewal_cost',e.target.value)}/></label>
+      </div>
+      <label><div className="muted">Notes</div><textarea value={form.notes} onChange={e=>set('notes',e.target.value)}/></label>
+      {error&&<div className="badge red" style={{borderRadius:10,padding:'8px 12px'}}>{error}</div>}
+      <button className="primary" onClick={save} disabled={saving}>{saving?'Saving\u2026':'Save Record'}</button>
     </div>
   </div></div>;
 }
