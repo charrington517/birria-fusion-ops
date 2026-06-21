@@ -438,26 +438,34 @@ function CompoundModal({compound, ingredients, allCompounds, api, onClose, onSav
 }
 
 // ── Inventory Page ─────────────────────────────────────────────────────────────
-function InventoryPage({items, api, refresh}){
+function InventoryPage({items, suppliers=[], api, refresh}){
   const [editing,setEditing]=useState(null);
   const [q,setQ]=useState('');
+  const [vendorFilter,setVendorFilter]=useState('');
+  const supMap=Object.fromEntries(suppliers.map(s=>[s.id,s.name]));
   async function save(form){ const id=form.id; await api(`/api/inventory${id?`/${id}`:''}`,{method:id?'PUT':'POST',body:JSON.stringify(form)}); setEditing(null); await refresh(); }
   async function del(id){ if(!confirm('Delete?')) return; await api(`/api/inventory/${id}`,{method:'DELETE'}); await refresh(); }
   const lq=q.toLowerCase();
-  const filtered=lq?items.filter(i=>
-    i.name.toLowerCase().includes(lq)||
-    (i.category||'').toLowerCase().includes(lq)||
-    (i.supplier||'').toLowerCase().includes(lq)
-  ):items;
+  let filtered=lq?items.filter(i=>{
+    const vname=(supMap[i.supplier_id]||i.supplier||'').toLowerCase();
+    return i.name.toLowerCase().includes(lq)||(i.category||'').toLowerCase().includes(lq)||vname.includes(lq);
+  }):items;
+  if(vendorFilter==='none') filtered=filtered.filter(i=>!i.supplier_id);
+  else if(vendorFilter) filtered=filtered.filter(i=>String(i.supplier_id)===vendorFilter);
   const grouped={};
   filtered.forEach(item=>{ const c=item.category||'Other'; if(!grouped[c]) grouped[c]=[]; grouped[c].push(item); });
   const allCats = [...INV_CATEGORIES.filter(c=>grouped[c]?.length), ...Object.keys(grouped).filter(c=>!INV_CATEGORIES.includes(c))];
   return <>
     <div className="card" style={{marginBottom:18,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}>
-      <div><h3 style={{margin:'0 0 2px'}}>Inventory</h3><p className="muted" style={{margin:0}}>{filtered.length}{lq?' of '+items.length:''} items</p></div>
+      <div><h3 style={{margin:'0 0 2px'}}>Inventory</h3><p className="muted" style={{margin:0}}>{filtered.length}{lq||vendorFilter?' of '+items.length:''} items</p></div>
       <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search name, category, supplier…" style={{width:'min(240px,100%)',background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:10,padding:'8px 12px',fontSize:13}}/>
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search name, category, vendor…" style={{width:'min(200px,100%)',background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:10,padding:'8px 12px',fontSize:13}}/>
         {q&&<button onClick={()=>setQ('')} style={{padding:'8px 10px',fontSize:12}}>✕</button>}
+        <select value={vendorFilter} onChange={e=>setVendorFilter(e.target.value)} style={{background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:10,padding:'8px 10px',fontSize:13}}>
+          <option value=''>All Vendors</option>
+          <option value='none'>No Vendor</option>
+          {suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
         <button className="primary" onClick={()=>setEditing({})}>Add Item</button>
       </div>
     </div>
@@ -478,18 +486,18 @@ function InventoryPage({items, api, refresh}){
               <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Unit Cost</div><div style={{color:'#fca5a5'}}>{money(item.cost)}</div></div>
               <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Category</div><div>{item.category||'—'}</div></div>
             </div>
-            {item.supplier&&<p className="muted" style={{fontSize:12,marginTop:6}}>Supplier: {item.supplier}</p>}
+            <p className="muted" style={{fontSize:12,marginTop:6}}>Vendor: {supMap[item.supplier_id]||<span style={{color:'#52525b'}}>Not assigned</span>}</p>
             <div className="actions" style={{marginTop:10}}><button onClick={()=>setEditing(item)}>Edit</button><button className="danger" onClick={()=>del(item.id)}>Delete</button></div>
           </div>;
         })}
       </div>
     </div>)}
-    {editing!==null&&<InventoryModal item={editing} onSave={save} onClose={()=>setEditing(null)}/>}
+    {editing!==null&&<InventoryModal item={editing} onSave={save} onClose={()=>setEditing(null)} suppliers={suppliers}/>}
   </>;
 }
-function InventoryModal({item,onSave,onClose}){
+function InventoryModal({item,onSave,onClose,suppliers=[]}){
   const isNew=!item.id;
-  const [form,setForm]=useState({id:item.id,name:item.name||'',category:item.category||'Food',unit:item.unit||'each',current_stock:item.current_stock??'',min_stock:item.min_stock??'',max_stock:item.max_stock??'',cost:item.cost||'',supplier:item.supplier||'',forecast_per_event:item.forecast_per_event||''});
+  const [form,setForm]=useState({id:item.id,name:item.name||'',category:item.category||'Food',unit:item.unit||'each',current_stock:item.current_stock??'',min_stock:item.min_stock??'',max_stock:item.max_stock??'',cost:item.cost||'',supplier:item.supplier||'',supplier_id:item.supplier_id||null,forecast_per_event:item.forecast_per_event||''});
   function set(k,v){setForm(f=>({...f,[k]:v}));}
   return <div className="modal"><div className="modal-card">
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}><h3 style={{margin:0}}>{isNew?'Add':'Edit'} Inventory Item</h3><button onClick={onClose}>×</button></div>
@@ -508,7 +516,12 @@ function InventoryModal({item,onSave,onClose}){
         <label><div className="muted">Unit Cost ($)</div><input type="number" step="0.01" value={form.cost} onChange={e=>set('cost',e.target.value)}/></label>
         <label><div className="muted">Forecast / Event</div><input type="number" step="0.1" value={form.forecast_per_event} onChange={e=>set('forecast_per_event',e.target.value)}/></label>
       </div>
-      <label><div className="muted">Supplier</div><input value={form.supplier} onChange={e=>set('supplier',e.target.value)}/></label>
+      <label><div className="muted">Vendor</div>
+        <select value={form.supplier_id||''} onChange={e=>set('supplier_id',e.target.value?Number(e.target.value):null)} style={{background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:12,padding:'11px 13px',width:'100%'}}>
+          <option value=''>-- No Vendor --</option>
+          {suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+      </label>
       <button className="primary" onClick={()=>onSave(form)}>Save</button>
     </div>
   </div></div>;
