@@ -179,6 +179,9 @@ function App(){
 function CompoundsPage({compounds, ingredients, allCompounds, api, refresh}){
   const [editing, setEditing] = useState(null);
   const [costs,   setCosts]   = useState({});
+  const [q,       setQ]       = useState('');
+  const [healthFilter, setHealthFilter] = useState('');
+  const [openCards, setOpenCards] = useState({});
 
   useEffect(()=>{
     compounds.forEach(c=>{
@@ -195,54 +198,75 @@ function CompoundsPage({compounds, ingredients, allCompounds, api, refresh}){
     await refresh();
   }
 
+  function toggle(id){ setOpenCards(m=>({...m,[id]:!m[id]})); }
+  function isBroken(cost){ return cost ? cost.components.some(c=>!c.name||c.name==='') : false; }
+
+  const lq=q.toLowerCase();
+  let filtered=lq?compounds.filter(c=>
+    c.name.toLowerCase().includes(lq)||(c.category||'').toLowerCase().includes(lq)
+  ):compounds;
+  if(healthFilter==='healthy') filtered=filtered.filter(c=>costs[c.id]&&!isBroken(costs[c.id]));
+  if(healthFilter==='broken')  filtered=filtered.filter(c=>isBroken(costs[c.id]));
+
   return <>
-    <div className="card" style={{marginBottom:18,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-      <div><h3>Compound Ingredients</h3><p className="muted">{compounds.length} items</p></div>
-      <button className="primary" onClick={()=>setEditing({})}>Add Compound</button>
+    <div className="card" style={{marginBottom:18,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}>
+      <div><h3 style={{margin:'0 0 2px'}}>Compound Ingredients</h3><p className="muted" style={{margin:0}}>{filtered.length}{lq||healthFilter?' of '+compounds.length:''} items</p></div>
+      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search name or category\u2026" style={{width:'min(180px,100%)',background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:10,padding:'8px 12px',fontSize:13}}/>
+        {q&&<button onClick={()=>setQ('')} style={{padding:'8px 10px',fontSize:12}}>\u2715</button>}
+        <select value={healthFilter} onChange={e=>setHealthFilter(e.target.value)} style={{background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:10,padding:'8px 10px',fontSize:13}}>
+          <option value=''>All Compounds</option>
+          <option value='healthy'>Healthy</option>
+          <option value='broken'>Broken</option>
+        </select>
+        <button className="primary" onClick={()=>setEditing({})}>Add Compound</button>
+      </div>
     </div>
     <div className="grid cards">
-      {compounds.map(ci=>{
-        const cost = costs[ci.id];
-        return <div className="card" key={ci.id}>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
-            <div>
-              <h3 style={{margin:'0 0 2px'}}>{ci.name}</h3>
-              <span className="muted" style={{fontSize:12}}>{ci.category}</span>
+      {filtered.map(ci=>{
+        const cost=costs[ci.id];
+        const broken=isBroken(cost);
+        const open=!!openCards[ci.id];
+        return <div className="card menu-card" key={ci.id}>
+          <div style={{cursor:'pointer'}} onClick={()=>toggle(ci.id)}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
+              <div style={{flex:1,minWidth:0}}>
+                <h3 style={{margin:'0 0 3px',fontSize:15}}>{ci.name}</h3>
+                <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
+                  <span className="muted" style={{fontSize:12}}>{ci.category}</span>
+                  {broken&&<span className="badge" style={{background:'rgba(239,68,68,.2)',color:'#fca5a5',fontSize:10}}>Missing Ingredient</span>}
+                </div>
+              </div>
+              <div style={{display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+                <span className="badge" style={ci.active?{background:'rgba(34,197,94,.18)',color:'#86efac'}:{background:'rgba(239,68,68,.2)',color:'#fca5a5'}}>{ci.active?'Active':'Inactive'}</span>
+                <span style={{fontSize:16,color:'#a1a1aa',userSelect:'none'}}>{open?'\u25b2':'\u25bc'}</span>
+              </div>
             </div>
-            <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:4}}>
-              <span className="badge" style={ci.active
-                ? {background:'rgba(34,197,94,.18)',color:'#86efac'}
-                : {background:'rgba(239,68,68,.2)',color:'#fca5a5'}}>
-                {ci.active?'Active':'Inactive'}
-              </span>
-              {cost && <span style={{fontSize:14,fontWeight:900,color:'#86efac'}}>{money(cost.cost_per_yield_unit)}/{ci.yield_unit}</span>}
+            <div className="inv-grid">
+              <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Yield</div><div style={{fontWeight:900}}>{ci.yield_amount} {ci.yield_unit}</div></div>
+              <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Batch Cost</div><div style={{color:'#fca5a5',fontWeight:900}}>{cost?money(cost.total_batch_cost):'...'}</div></div>
+              <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Cost / {ci.yield_unit}</div><div style={{color:'#86efac',fontWeight:900}}>{cost?money(cost.cost_per_yield_unit):'...'}</div></div>
+              <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Components</div><div>{cost?cost.components.length:0}</div></div>
             </div>
           </div>
-
-          <div className="inv-grid" style={{marginTop:10}}>
-            <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Yield</div><div style={{fontWeight:900}}>{ci.yield_amount} {ci.yield_unit}</div></div>
-            <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Batch Cost</div><div style={{color:'#fca5a5',fontWeight:900}}>{cost?money(cost.total_batch_cost):'...'}</div></div>
-            <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Cost / {ci.yield_unit}</div><div style={{color:'#86efac',fontWeight:900}}>{cost?money(cost.cost_per_yield_unit):'...'}</div></div>
-            <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Components</div><div>{cost?cost.components.length:0}</div></div>
-          </div>
-
-          {cost && cost.components.length>0 && <>
-            <div className="muted" style={{fontSize:11,marginTop:10,marginBottom:4,textTransform:'uppercase',letterSpacing:'0.08em'}}>Components</div>
-            {cost.components.map((comp,i)=><div key={i} className="profit-row" style={{fontSize:12}}>
-              <span style={{display:'flex',alignItems:'center',gap:6}}>
-                {comp.type==='compound' && <span className="badge" style={{fontSize:10,padding:'2px 6px',background:'rgba(168,85,247,.18)',color:'#d8b4fe'}}>COMPOUND</span>}
-                {comp.name}
-              </span>
-              <span className="muted">×{comp.quantity} {comp.unit}</span>
-              <span style={{color:'#fca5a5'}}>{money(comp.line_cost)}</span>
-            </div>)}
-          </>}
-
-          {ci.notes && <p className="muted" style={{fontSize:12,marginTop:8}}>{ci.notes}</p>}
-
-          <div className="actions" style={{marginTop:12}}>
-            <button onClick={()=>setEditing(ci)}>Edit</button>
-            <button className="danger" onClick={()=>del(ci.id)}>Delete</button>
+          {open&&<div style={{marginTop:12,paddingTop:12,borderTop:'1px solid rgba(255,255,255,.08)'}}>
+            {cost&&cost.components.length>0&&<>
+              <div className="muted" style={{fontSize:11,marginBottom:6,textTransform:'uppercase',letterSpacing:'0.08em'}}>Ingredients</div>
+              {cost.components.map((comp,i)=><div key={i} className="profit-row" style={{fontSize:12}}>
+                <span style={{display:'flex',alignItems:'center',gap:6}}>
+                  {comp.type==='compound'&&<span className="badge" style={{fontSize:10,padding:'2px 6px',background:'rgba(168,85,247,.18)',color:'#d8b4fe'}}>COMPOUND</span>}
+                  {comp.name?comp.name:<span style={{color:'#fca5a5'}}>Missing ingredient</span>}
+                </span>
+                <span className="muted">\xd7{comp.quantity} {comp.unit}</span>
+                <span style={{color:'#fca5a5'}}>{money(comp.line_cost)}</span>
+              </div>)}
+            </>}
+            {!cost&&<p className="muted" style={{fontSize:12}}>Loading cost data\u2026</p>}
+            {ci.notes&&<p className="muted" style={{fontSize:12,marginTop:8,fontStyle:'italic'}}>{ci.notes}</p>}
+          </div>}
+          <div className="actions" style={{marginTop:10}}>
+            <button onClick={e=>{e.stopPropagation();setEditing(ci);}}>Edit</button>
+            <button className="danger" onClick={e=>{e.stopPropagation();del(ci.id);}}>Delete</button>
           </div>
         </div>;
       })}
@@ -250,6 +274,7 @@ function CompoundsPage({compounds, ingredients, allCompounds, api, refresh}){
     {editing!==null && <CompoundModal compound={editing} ingredients={ingredients} allCompounds={allCompounds} api={api} onClose={()=>setEditing(null)} onSaved={()=>{ setEditing(null); refresh(); }}/>}
   </>;
 }
+
 
 function CompoundModal({compound, ingredients, allCompounds, api, onClose, onSaved}){
   const isNew = !compound.id;
