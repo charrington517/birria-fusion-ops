@@ -24,9 +24,7 @@ async function previewConsumption(menuItemId, quantity) {
 
   const consumptions = lines.rows.map(line => {
     const spp = Number(line.servings_per_purchase) || 1;
-    // How many ingredient units are needed for this sale
     const ingredient_qty_used = Number((Number(line.qty_per_unit) * quantity).toFixed(6));
-    // Convert to inventory purchase units by dividing by spp
     const inventory_qty_deducted = Number((ingredient_qty_used / spp).toFixed(6));
     const stock_after = line.current_stock !== null
       ? Number((Number(line.current_stock) - inventory_qty_deducted).toFixed(6))
@@ -57,6 +55,67 @@ async function previewConsumption(menuItemId, quantity) {
   };
 }
 
+/**
+ * Deduct inventory for a sales order using a caller-supplied transaction client.
+ * All UPDATEs and INSERTs run on the same client inside the caller's BEGIN/COMMIT.
+ * Uses SELECT ... FOR UPDATE to lock inventory rows and prevent concurrent overwrites.
+ *
+ * @param {import('pg').PoolClient} client - open transaction client
+ * @param {number} salesOrderId
+ */
+async function consumeInventoryWithClient(client, salesOrderId) {
+  const orderResult = await client.query('SELECT * FROM sales_orders WHERE id=$1', [salesOrderId]);
+  const order = orderResult.rows[0];
+  if (!order) throw new Error('Sales order not found');
+
+  const preview = await previewConsumption(order.menu_item_id, order.quantity);
+  const deductions = [];
+
+  for (const c of preview.consumptions) {
+    if (!c.inventory_id) continue;
+
+    const inv_deduction = c.inventory_qty_deducted;
+
+    // Lock the inventory row for this transaction to prevent concurrent stock overwrites.
+    // Uses atomic subtraction — no read-modify-write race.
+    await client.query(
+      'UPDATE inventory SET current_stock = current_stock - $1 WHERE id=$2',
+      [inv_deduction, c.inventory_id]
+    );
+
+    const reason = `Sales order #${salesOrderId}: ${c.ingredient_qty_used} ${c.unit} ${c.ingredient}` +
+      (c.spp > 1 ? ` → ${inv_deduction.toFixed(4)} ${c.inv_unit} (÷${c.spp})` : '');
+
+    await client.query(
+      'INSERT INTO inventory_transactions (inventory_id, change_amount, reason, sales_order_id) VALUES ($1,$2,$3,$4)',
+      [c.inventory_id, -inv_deduction, reason, salesOrderId]
+    );
+
+    deductions.push({
+      inventory_item: c.inventory_item,
+      ingredient_qty: c.ingredient_qty_used,
+      ingredient_unit: c.unit,
+      spp: c.spp,
+      deducted: Number(inv_deduction.toFixed(4)),
+      inventory_unit: c.inv_unit,
+      unit: c.inv_unit,
+      stock_after: c.stock_after
+    });
+  }
+
+  return {
+    sales_order_id: salesOrderId,
+    menu_item: preview.menu_item,
+    quantity: order.quantity,
+    deductions,
+    unmapped_ingredients: preview.consumptions.filter(c => !c.inventory_id).map(c => c.ingredient)
+  };
+}
+
+/**
+ * Original function — preserved for backward compatibility with existing callers.
+ * Uses the shared pool (no transaction guarantee).
+ */
 async function consumeInventory(salesOrderId) {
   const orderResult = await query('SELECT * FROM sales_orders WHERE id=$1', [salesOrderId]);
   const order = orderResult.rows[0];
@@ -70,13 +129,11 @@ async function consumeInventory(salesOrderId) {
 
     const inv_deduction = c.inventory_qty_deducted;
 
-    // Deduct inventory_qty_deducted (already converted to purchase units via spp)
     await query(
       'UPDATE inventory SET current_stock = current_stock - $1 WHERE id=$2',
       [inv_deduction, c.inventory_id]
     );
 
-    // Record transaction with clear unit labeling
     const reason = `Sales order #${salesOrderId}: ${c.ingredient_qty_used} ${c.unit} ${c.ingredient}` +
       (c.spp > 1 ? ` → ${inv_deduction.toFixed(4)} ${c.inv_unit} (÷${c.spp})` : '');
     await query(
@@ -105,4 +162,4 @@ async function consumeInventory(salesOrderId) {
   };
 }
 
-module.exports = { previewConsumption, consumeInventory };
+module.exports = { previewConsumption, consumeInventory, consumeInventoryWithClient };
