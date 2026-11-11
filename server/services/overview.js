@@ -7,7 +7,7 @@ function margin(price, cost) {
 }
 
 async function buildOverview() {
-  const [inventory, menu, catering, events, staff, equipment, suppliers, tasks, playbook, activity, ingredients, recipes, compounds, expenses, compliance] = await Promise.all([
+  const [inventory, menu, catering, events, staff, equipment, suppliers, tasks, playbook, activity, ingredients, recipes, compounds, expenses, compliance, invCategories] = await Promise.all([
     query('SELECT * FROM inventory ORDER BY id DESC'),
     query('SELECT * FROM menu_items ORDER BY id DESC'),
     query('SELECT * FROM catering ORDER BY date NULLS LAST'),
@@ -22,7 +22,8 @@ async function buildOverview() {
     query('SELECT * FROM recipes ORDER BY id DESC'),
     query('SELECT * FROM compound_ingredients ORDER BY id DESC'),
     query('SELECT * FROM expenses ORDER BY date DESC'),
-    query('SELECT * FROM compliance WHERE active=true ORDER BY expiration_date NULLS LAST')
+    query('SELECT * FROM compliance WHERE active=true ORDER BY expiration_date NULLS LAST'),
+    query('SELECT * FROM inventory_categories ORDER BY sort_order, name')
   ]);
 
   const inv = inventory.rows;
@@ -95,6 +96,7 @@ async function buildOverview() {
     ].slice(0, 30),
     data: {
       inventory: inv,
+      'inventory-categories': invCategories.rows,
       menu: menuRows,
       catering: cat,
       events: events.rows,

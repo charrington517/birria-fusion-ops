@@ -14,6 +14,13 @@ if (!TEST_DB_URL) {
   process.exit(1);
 }
 
+// Safety guard: refuse to run against the production database.
+const _testDbName = TEST_DB_URL.match(/\/([^/?]+)(\?|$)/)?.[1] || '';
+if (_testDbName === 'birria_fusion_ops') {
+  console.error('REFUSED: TEST_DATABASE_URL points to the production database (birria_fusion_ops). Use birria_fusion_test.');
+  process.exit(1);
+}
+
 const pool = new Pool({ connectionString: TEST_DB_URL });
 async function q(text, params) { return pool.query(text, params); }
 
