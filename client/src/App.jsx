@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Boxes, CalendarDays, ChefHat, ClipboardList, Home, Users, Wrench, Truck, Brain, ShieldCheck, LogOut, BookOpen, FlaskConical } from 'lucide-react';
+import { Boxes, CalendarDays, ChefHat, ClipboardList, Home, Users, Wrench, Truck, Brain, ShieldCheck, LogOut, BookOpen, FlaskConical, Settings } from 'lucide-react';
 import './style.css';
 
 const todayItem = ['today', Home, 'Today'];
@@ -28,6 +28,7 @@ const navGroups = [
     ['ai',         Brain,        'AI Copilot'],
     ['playbook',   Brain,        'Playbook'],
     ['activity',   ClipboardList,'Activity'],
+    ['settings',   Settings,     'Settings'],
   ]},
 ];
 const nav = [todayItem, ...navGroups.flatMap(g => g.items)];
@@ -167,7 +168,8 @@ function App(){
         {page==='events'      && <EventsPage events={data} menuItems={overview.data.menu||[]} api={auth.api} refresh={refresh} setModal={setModal} remove={remove}/>}
         {page==='suppliers'   && <VendorsPage vendors={data} api={auth.api} refresh={refresh}/>}
         {page==='compliance'  && <CompliancePage compliance={overview.data.compliance||[]} api={auth.api} refresh={refresh}/>}
-        {page!=='today'&&page!=='ai'&&page!=='inventory'&&page!=='ingredients'&&page!=='compounds'&&page!=='recipes'&&page!=='menu'&&page!=='events'&&page!=='suppliers'&&page!=='compliance'&&
+        {page==='settings'    && <SettingsPage api={auth.api} logout={auth.logout}/>}
+        {page!=='today'&&page!=='ai'&&page!=='inventory'&&page!=='ingredients'&&page!=='compounds'&&page!=='recipes'&&page!=='menu'&&page!=='events'&&page!=='suppliers'&&page!=='compliance'&&page!=='settings'&&
           <Collection page={page} data={data} setModal={setModal} remove={remove}/>}
       </section>
     </main>
@@ -1519,5 +1521,112 @@ function EditModal({modal,save,close}){const [form,setForm]=useState(modal.item|
 // ── Today ──────────────────────────────────────────────────────────────────────
 function Today({overview}){const m=overview.metrics;return <><div className="grid metrics"><Metric label="Inventory Alerts" value={m.inventory_alerts} note="At or below minimum"/><Metric label="Catering Pipeline" value={'$'+Number(m.catering_pipeline||0).toLocaleString(undefined,{maximumFractionDigits:0})} note="Open value"/><Metric label="Open Tasks" value={m.open_tasks} note="Needs action"/><Metric label="Active Staff" value={m.active_staff} note="On/active"/><Metric label="Avg Menu Margin" value={pct(m.avg_menu_margin)} note="Food cost health"/></div><div className="grid two" style={{marginTop:20}}><div className="card"><h3>Operational Timeline</h3><div className="list">{overview.timeline.map((x,i)=><div className="row" key={i}><div><strong>{x.title}</strong><span>{x.kind} · {x.type} · {String(x.time||'Today').slice(0,10)}</span></div><Badge color={x.priority==='High'?'red':'orange'}>{x.status}</Badge></div>)}</div></div><div className="card"><h3>AI Recommendations</h3><div className="list">{overview.insights.length?overview.insights.map((x,i)=><div className="row" key={i}><div><strong>{x.title}</strong><span>{x.detail}<br/>{x.action}</span></div><Badge color={x.level==='Critical'?'red':x.level==='Warning'?'yellow':'green'}>{x.level}</Badge></div>):<p className="muted">No major risks.</p>}</div></div></div></>;}
 function AiPage({aiPrompt,setAiPrompt,aiAnswer,setAiAnswer,api}){async function ask(){setAiAnswer('Thinking…');const r=await api('/api/ai/ask',{method:'POST',body:JSON.stringify({prompt:aiPrompt})});setAiAnswer(r.text);}return <div className="grid two"><div className="card"><h3>AI Copilot</h3><p className="muted">Rules-based until AI_ENABLED=true.</p><div className="form"><textarea value={aiPrompt} onChange={e=>setAiPrompt(e.target.value)}/><button className="primary" onClick={ask}>Ask AI</button></div></div><div className="card"><h3>Answer</h3><pre style={{whiteSpace:'pre-wrap'}}>{aiAnswer||'Ask a question about operations.'}</pre></div></div>;}
+
+// ── Settings Page ────────────────────────────────────────────────────────────
+function SettingsPage({api, logout}){
+  return <div className="grid two" style={{alignItems:'start'}}>
+    <ChangePasswordForm api={api} logout={logout}/>
+  </div>;
+}
+
+function ChangePasswordForm({api, logout}){
+  const [current,  setCurrent]  = useState('');
+  const [next,     setNext]     = useState('');
+  const [confirm,  setConfirm]  = useState('');
+  const [showCur,  setShowCur]  = useState(false);
+  const [showNew,  setShowNew]  = useState(false);
+  const [showCon,  setShowCon]  = useState(false);
+  const [saving,   setSaving]   = useState(false);
+  const [success,  setSuccess]  = useState(false);
+  const [error,    setError]    = useState('');
+
+  function clear(){ setCurrent(''); setNext(''); setConfirm(''); }
+
+  function validate(){
+    if(!current)           return 'Current password is required.';
+    if(next.length < 12)   return 'New password must be at least 12 characters.';
+    if(next !== confirm)   return 'New passwords do not match.';
+    if(next === current)   return 'New password must differ from current password.';
+    return null;
+  }
+
+  async function submit(e){
+    e.preventDefault();
+    setError(''); setSuccess(false);
+    const err = validate();
+    if(err){ setError(err); return; }
+    setSaving(true);
+    try {
+      await api('/api/auth/change-password', {
+        method: 'POST',
+        body: JSON.stringify({ current_password: current, new_password: next }),
+      });
+      clear();
+      setSuccess(true);
+      // Invalidate session — new JWT secret means user must log in again anyway,
+      // and the password has changed so the old session should not persist.
+      setTimeout(logout, 2500);
+    } catch(e) {
+      // Surface the server message but never echo back any password value.
+      const msg = e.message || '';
+      if(msg.includes('incorrect'))      setError('Current password is incorrect.');
+      else if(msg.includes('12 char'))   setError('New password must be at least 12 characters.');
+      else if(msg.includes('differ'))    setError('New password must differ from current password.');
+      else                               setError('Password change failed. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const eyeBtn = (show, toggle) => (
+    <button type="button" onClick={toggle}
+      style={{position:'absolute',right:12,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',color:'#a1a1aa',cursor:'pointer',padding:'4px',fontSize:13}}>
+      {show ? 'Hide' : 'Show'}
+    </button>
+  );
+
+  return <div className="card">
+    <h3 style={{margin:'0 0 4px'}}>Change Password</h3>
+    <p className="muted" style={{margin:'0 0 16px',fontSize:13}}>You will be signed out after a successful change.</p>
+    {success && <div className="badge green" style={{borderRadius:10,padding:'10px 14px',marginBottom:12,fontSize:13}}>Password updated. Signing you out…</div>}
+    {!success && <form className="form" onSubmit={submit} autoComplete="off">
+      <label>
+        <div className="muted">Current Password</div>
+        <div style={{position:'relative'}}>
+          <input type={showCur?'text':'password'} value={current} onChange={e=>setCurrent(e.target.value)}
+            autoComplete="current-password" style={{paddingRight:56}}/>
+          {eyeBtn(showCur, ()=>setShowCur(s=>!s))}
+        </div>
+      </label>
+      <label>
+        <div className="muted">New Password <span className="muted" style={{fontSize:11}}>(min 12 characters)</span></div>
+        <div style={{position:'relative'}}>
+          <input type={showNew?'text':'password'} value={next} onChange={e=>setNext(e.target.value)}
+            autoComplete="new-password" style={{paddingRight:56}}/>
+          {eyeBtn(showNew, ()=>setShowNew(s=>!s))}
+        </div>
+        {next.length>0 && <div style={{fontSize:11,marginTop:4,color:next.length>=12?'#86efac':'#fca5a5'}}>
+          {next.length}/12 characters {next.length>=12?'✓':''}
+        </div>}
+      </label>
+      <label>
+        <div className="muted">Confirm New Password</div>
+        <div style={{position:'relative'}}>
+          <input type={showCon?'text':'password'} value={confirm} onChange={e=>setConfirm(e.target.value)}
+            autoComplete="new-password" style={{paddingRight:56}}/>
+          {eyeBtn(showCon, ()=>setShowCon(s=>!s))}
+        </div>
+        {confirm.length>0 && next.length>0 && <div style={{fontSize:11,marginTop:4,color:next===confirm?'#86efac':'#fca5a5'}}>
+          {next===confirm?'Passwords match ✓':'Passwords do not match'}
+        </div>}
+      </label>
+      {error && <div className="badge red" style={{borderRadius:10,padding:'8px 14px',fontSize:13}}>{error}</div>}
+      <div style={{display:'flex',gap:10}}>
+        <button className="primary" type="submit" disabled={saving}>{saving?'Saving…':'Update Password'}</button>
+        <button type="button" onClick={()=>{clear();setError('');}} disabled={saving}>Clear</button>
+      </div>
+    </form>}
+  </div>;
+}
 
 createRoot(document.getElementById('root')).render(<App/>);
