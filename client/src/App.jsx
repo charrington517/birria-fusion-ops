@@ -475,8 +475,20 @@ function InventoryPage({items, suppliers=[], categories=[], api, refresh}){
 
   async function save(form){
     const id=form.id;
-    await api(`/api/inventory${id?`/${id}`:''}`,{method:id?'PUT':'POST',body:JSON.stringify(form)});
-    setEditing(null); await refresh();
+    try {
+      await api(`/api/inventory${id?`/${id}`:''}`,{method:id?'PUT':'POST',body:JSON.stringify(form)});
+      setEditing(null); await refresh();
+    } catch(e){
+      const raw = e.message||'';
+      let parsed = {};
+      try { parsed = JSON.parse(raw); } catch {}
+      if(parsed.error && parsed.error.includes('Barcode')){
+        const who = parsed.conflict_item ? ` (assigned to "${parsed.conflict_item}")` : '';
+        alert(`Barcode conflict${who}: that barcode is already assigned to another item.`);
+      } else {
+        throw e;
+      }
+    }
   }
   async function del(id){ if(!confirm('Delete?')) return; await api(`/api/inventory/${id}`,{method:'DELETE'}); await refresh(); }
 
@@ -570,10 +582,21 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[]}){
   const [form,setForm]=useState({id:item.id,name:item.name||'',category:item.category||categories[0]||'Food',unit:item.unit||'each',current_stock:item.current_stock??'',min_stock:item.min_stock??'',max_stock:item.max_stock??'',cost:item.cost||'',supplier:item.supplier||'',supplier_id:item.supplier_id||null,forecast_per_event:item.forecast_per_event||'',barcode:item.barcode||''});
   const [barcodeErr,setBarcodeErr]=useState('');
   function set(k,v){setForm(f=>({...f,[k]:v}));}
+  function eanCheckValid(digits){
+    const d=digits.split('').map(Number);
+    const payload=d.slice(0,-1);
+    const claimed=d[d.length-1];
+    const w0=payload.length%2===0?1:3;
+    const sum=payload.reduce((acc,v,i)=>acc+v*(i%2===0?w0:4-w0),0);
+    return (10-(sum%10))%10===claimed;
+  }
   function validateBarcode(v){
     if(!v) return '';
     const d=v.replace(/\D/g,'');
-    if([6,8,12,13].includes(d.length)) return '';
+    if(d.length===12) return eanCheckValid(d)?'':'Invalid UPC-A check digit';
+    if(d.length===13) return eanCheckValid(d)?'':'Invalid EAN-13 check digit';
+    if(d.length===8)  return eanCheckValid(d)?'':'Invalid EAN-8 check digit';
+    if(d.length===6)  return ''; // UPC-E payload — check digit computed on expansion
     return 'Must be 6, 8, 12, or 13 digits (UPC-E, EAN-8, UPC-A, EAN-13)';
   }
   function handleBarcode(v){
@@ -1740,7 +1763,10 @@ function InventoryCategoriesManager({api}){
     try {
       await api(`/api/inventory-categories/${id}`,{method:'PUT',body:JSON.stringify({name:trimmed})});
       await load();
-    } catch(e){ setError('Rename failed: '+e.message); }
+    } catch(e){
+      const msg=e.message||'';
+      setError(msg.includes('409')||msg.includes('already')?'That category name already exists.':'Rename failed: '+msg);
+    }
   }
 
   async function toggleActive(id, active){
