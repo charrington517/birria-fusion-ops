@@ -12,6 +12,7 @@
     "build": "npm run build --prefix client",
     "start": "NODE_ENV=production node server/index.js",
     "db:init": "node server/db/init.js",
+    "db:migrate": "node server/db/migrate.js",
     "db:seed": "node server/db/seed.js",
     "setup": "npm run install:all && npm run db:init && npm run db:seed && npm run build",
     "verify-seed": "node server/db/verify-seed.js"

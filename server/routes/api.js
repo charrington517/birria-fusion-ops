@@ -4,7 +4,8 @@ const crud = require('../services/crud');
 const { buildOverview } = require('../services/overview');
 const { createAiTask, askOllama } = require('../ai/ollama');
 const { calculateRecipeCost, calculateMenuItemCost, calculateAllMenuCosts, calculateCompoundCost } = require('../services/costing');
-const { previewConsumption, consumeInventory } = require('../services/consumption');
+const { previewConsumption, consumeInventory, consumeInventoryWithClient } = require('../services/consumption');
+const { withTransaction } = require('../db/pool');
 const { calculateEventProfit, getEventProfitSummary } = require('../services/profitability');
 const { query } = require('../db/pool');
 
@@ -166,24 +167,72 @@ router.get('/inventory/consumption-preview', async (req, res, next) => {
 
 router.post('/sales-orders', async (req, res, next) => {
   try {
-    const { menu_item_id, quantity, event_id, note } = req.body;
+    const { menu_item_id, quantity, event_id, note, idempotency_key } = req.body;
     if (!menu_item_id || !quantity) return res.status(400).json({ error: 'menu_item_id and quantity required' });
-    const result = await query(
-      'INSERT INTO sales_orders (menu_item_id, quantity, event_id, note) VALUES ($1,$2,$3,$4) RETURNING *',
-      [menu_item_id, quantity, event_id || null, note || null]
-    );
-    const order = result.rows[0];
-    let consumption = null;
-    try {
-      consumption = await consumeInventory(order.id);
-      console.log('CONSUMPTION RESULT:', JSON.stringify(consumption));
-    } catch (e) {
-      console.error('CONSUMPTION ERROR:', e.message);
-      consumption = { error: e.message };
+
+    // If a key was supplied, check whether this request was already processed.
+    if (idempotency_key) {
+      const existing = await query(
+        `SELECT so.*, row_to_json(so) AS order_json
+         FROM sales_orders so
+         WHERE so.idempotency_key = $1`,
+        [idempotency_key]
+      );
+      if (existing.rows.length) {
+        const prev = existing.rows[0];
+        // Reject reuse with a different payload.
+        if (
+          Number(prev.menu_item_id) !== Number(menu_item_id) ||
+          Number(prev.quantity)     !== Number(quantity)     ||
+          (prev.event_id || null)   !== (event_id || null)
+        ) {
+          return res.status(409).json({
+            error: 'Idempotency key already used with different order contents.',
+            original_order_id: prev.id
+          });
+        }
+        // Same payload — return the original result (idempotent replay).
+        const prevConsumption = await query(
+          `SELECT * FROM inventory_transactions WHERE sales_order_id = $1`,
+          [prev.id]
+        );
+        return res.status(200).json({
+          order: prev,
+          consumption: { replayed: true, transactions: prevConsumption.rows }
+        });
+      }
     }
-    console.log('SENDING RESPONSE consumption is:', typeof consumption);
+
+    // Run the entire sale + inventory deduction in one transaction.
+    const { order, consumption } = await withTransaction(async (client) => {
+      const insertResult = await client.query(
+        `INSERT INTO sales_orders (menu_item_id, quantity, event_id, note, idempotency_key)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING *`,
+        [menu_item_id, quantity, event_id || null, note || null, idempotency_key || null]
+      );
+      const order = insertResult.rows[0];
+      const consumption = await consumeInventoryWithClient(client, order.id);
+      return { order, consumption };
+    });
+
     return res.status(201).json({ order, consumption });
-  } catch (err) { next(err); }
+  } catch (err) {
+    // PostgreSQL unique violation on idempotency_key = concurrent duplicate request.
+    if (err.code === '23505' && err.constraint === 'sales_orders_idempotency_key_idx') {
+      const existing = await query(
+        'SELECT * FROM sales_orders WHERE idempotency_key = $1',
+        [req.body.idempotency_key]
+      );
+      if (existing.rows.length) {
+        return res.status(200).json({
+          order: existing.rows[0],
+          consumption: { replayed: true, concurrent_duplicate: true }
+        });
+      }
+    }
+    next(err);
+  }
 });
 
 router.get('/sales-orders', async (req, res, next) => {
