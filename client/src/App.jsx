@@ -82,11 +82,11 @@ function useApi() {
 // ── Shared ─────────────────────────────────────────────────────────────────────
 function Login({login}) {
   const [err,setErr]=useState('');
-  async function submit(e){ e.preventDefault(); setErr(''); const f=new FormData(e.currentTarget); try{await login(f.get('username'),f.get('password'));}catch{setErr('Login failed.');} }
+  async function submit(e){ e.preventDefault(); setErr(''); const f=new FormData(e.currentTarget); try{await login(f.get('username'),f.get('password'));}catch{setErr('Login failed. Check your credentials.');} }
   return <div className="login"><form className="card form" onSubmit={submit}>
     <div className="brand"><div className="logo">TF</div><div><h1>TruckFlow Ops</h1><p>Operations Intelligence</p></div></div>
-    <input name="username" defaultValue="admin" placeholder="Username"/>
-    <input name="password" defaultValue="admin123" type="password" placeholder="Password"/>
+    <input name="username" placeholder="Username"/>
+    <input name="password" type="password" placeholder="Password"/>
     {err&&<div className="badge red">{err}</div>}
     <button className="primary">Login</button>
   </form></div>;
