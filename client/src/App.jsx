@@ -160,7 +160,7 @@ function App(){
       <section className="content">
         {page==='today'       && <Today overview={overview}/>}
         {page==='ai'          && <AiPage aiPrompt={aiPrompt} setAiPrompt={setAiPrompt} aiAnswer={aiAnswer} setAiAnswer={setAiAnswer} api={auth.api}/>}
-        {page==='inventory'   && <InventoryPage items={data} suppliers={Array.isArray(overview?.data?.suppliers)?overview.data.suppliers:[]} api={auth.api} refresh={refresh}/>}
+        {page==='inventory'   && <InventoryPage items={data} suppliers={Array.isArray(overview?.data?.suppliers)?overview.data.suppliers:[]} categories={overview.data['inventory-categories']||[]} api={auth.api} refresh={refresh}/>}
         {page==='ingredients' && <IngredientsPage ingredients={data} inventory={overview.data.inventory||[]} suppliers={Array.isArray(overview?.data?.suppliers)?overview.data.suppliers:[]} api={auth.api} refresh={refresh}/>}
         {page==='compounds'   && <CompoundsPage compounds={data} ingredients={overview.data.ingredients||[]} allCompounds={overview.data.compounds||[]} api={auth.api} refresh={refresh}/>}
         {page==='recipes'     && <RecipesPage recipes={data} ingredients={overview.data.ingredients||[]} api={auth.api} refresh={refresh}/>}
@@ -465,34 +465,75 @@ function CompoundModal({compound, ingredients, allCompounds, api, onClose, onSav
 }
 
 // ── Inventory Page ─────────────────────────────────────────────────────────────
-function InventoryPage({items, suppliers=[], api, refresh}){
+function InventoryPage({items, suppliers=[], categories=[], api, refresh}){
   const [editing,setEditing]=useState(null);
+  const [scanning,setScanning]=useState(false);
   const [q,setQ]=useState('');
   const [vendorFilter,setVendorFilter]=useState('');
+  const [catFilter,setCatFilter]=useState('');
   const supMap=Object.fromEntries(suppliers.map(s=>[s.id,s.name]));
-  async function save(form){ const id=form.id; await api(`/api/inventory${id?`/${id}`:''}`,{method:id?'PUT':'POST',body:JSON.stringify(form)}); setEditing(null); await refresh(); }
+
+  async function save(form){
+    const id=form.id;
+    await api(`/api/inventory${id?`/${id}`:''}`,{method:id?'PUT':'POST',body:JSON.stringify(form)});
+    setEditing(null); await refresh();
+  }
   async function del(id){ if(!confirm('Delete?')) return; await api(`/api/inventory/${id}`,{method:'DELETE'}); await refresh(); }
+
+  async function handleBarcode(barcode){
+    setScanning(false);
+    try {
+      const item = await api(`/api/inventory/barcode/${encodeURIComponent(barcode)}`);
+      setEditing(item);
+    } catch(e){
+      const msg = e.message||'';
+      if(msg.includes('404')||msg.includes('not found')){
+        // Unknown barcode — open Add form with barcode prefilled.
+        setEditing({barcode});
+      } else if(msg.includes('400')||msg.includes('Invalid')){
+        alert('Invalid barcode format: '+barcode);
+      } else {
+        alert('Barcode lookup failed.');
+      }
+    }
+  }
+
   const lq=q.toLowerCase();
   let filtered=lq?items.filter(i=>{
     const vname=(supMap[i.supplier_id]||i.supplier||'').toLowerCase();
-    return i.name.toLowerCase().includes(lq)||(i.category||'').toLowerCase().includes(lq)||vname.includes(lq);
+    return i.name.toLowerCase().includes(lq)||(i.category||'').toLowerCase().includes(lq)||vname.includes(lq)||(i.barcode||'').includes(lq);
   }):items;
   if(vendorFilter==='none') filtered=filtered.filter(i=>!i.supplier_id);
   else if(vendorFilter) filtered=filtered.filter(i=>String(i.supplier_id)===vendorFilter);
+  if(catFilter) filtered=filtered.filter(i=>(i.category||'Other')===catFilter);
+
   const grouped={};
   filtered.forEach(item=>{ const c=item.category||'Other'; if(!grouped[c]) grouped[c]=[]; grouped[c].push(item); });
-  const allCats = [...INV_CATEGORIES.filter(c=>grouped[c]?.length), ...Object.keys(grouped).filter(c=>!INV_CATEGORIES.includes(c))];
+  // Order by active categories sort_order first, then any legacy values not in the table.
+  const activeCatNames = categories.filter(c=>c.active).map(c=>c.name);
+  const allCats = [
+    ...activeCatNames.filter(c=>grouped[c]?.length),
+    ...Object.keys(grouped).filter(c=>!activeCatNames.includes(c))
+  ];
+
+  const catOptions = categories.filter(c=>c.active).map(c=>c.name);
+
   return <>
     <div className="card" style={{marginBottom:18,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}>
-      <div><h3 style={{margin:'0 0 2px'}}>Inventory</h3><p className="muted" style={{margin:0}}>{filtered.length}{lq||vendorFilter?' of '+items.length:''} items</p></div>
+      <div><h3 style={{margin:'0 0 2px'}}>Inventory</h3><p className="muted" style={{margin:0}}>{filtered.length}{lq||vendorFilter||catFilter?' of '+items.length:''} items</p></div>
       <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search name, category, vendor…" style={{width:'min(200px,100%)',background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:10,padding:'8px 12px',fontSize:13}}/>
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search name, category, barcode…" style={{width:'min(200px,100%)',background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:10,padding:'8px 12px',fontSize:13}}/>
         {q&&<button onClick={()=>setQ('')} style={{padding:'8px 10px',fontSize:12}}>✕</button>}
+        <select value={catFilter} onChange={e=>setCatFilter(e.target.value)} style={{background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:10,padding:'8px 10px',fontSize:13}}>
+          <option value=''>All Categories</option>
+          {allCats.map(c=><option key={c} value={c}>{c}</option>)}
+        </select>
         <select value={vendorFilter} onChange={e=>setVendorFilter(e.target.value)} style={{background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:10,padding:'8px 10px',fontSize:13}}>
           <option value=''>All Vendors</option>
           <option value='none'>No Vendor</option>
           {suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
+        <button onClick={()=>setScanning(true)} style={{padding:'8px 12px',fontSize:13}}>📷 Scan</button>
         <button className="primary" onClick={()=>setEditing({})}>Add Item</button>
       </div>
     </div>
@@ -513,27 +554,55 @@ function InventoryPage({items, suppliers=[], api, refresh}){
               <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Unit Cost</div><div style={{color:'#fca5a5'}}>{money(item.cost)}</div></div>
               <div className="inv-stat"><div className="muted" style={{fontSize:11}}>Category</div><div>{item.category||'—'}</div></div>
             </div>
+            {item.barcode&&<p className="muted" style={{fontSize:11,marginTop:4}}>Barcode: {item.barcode}</p>}
             <p className="muted" style={{fontSize:12,marginTop:6}}>Vendor: {supMap[item.supplier_id]||<span style={{color:'#52525b'}}>Not assigned</span>}</p>
             <div className="actions" style={{marginTop:10}}><button onClick={()=>setEditing(item)}>Edit</button><button className="danger" onClick={()=>del(item.id)}>Delete</button></div>
           </div>;
         })}
       </div>
     </div>)}
-    {editing!==null&&<InventoryModal item={editing} onSave={save} onClose={()=>setEditing(null)} suppliers={suppliers}/>}
+    {editing!==null&&<InventoryModal item={editing} onSave={save} onClose={()=>setEditing(null)} suppliers={suppliers} categories={catOptions}/>}
+    {scanning&&<BarcodeScanModal onScan={handleBarcode} onClose={()=>setScanning(false)}/>}
   </>;
 }
-function InventoryModal({item,onSave,onClose,suppliers=[]}){
+function InventoryModal({item,onSave,onClose,suppliers=[],categories=[]}){
   const isNew=!item.id;
-  const [form,setForm]=useState({id:item.id,name:item.name||'',category:item.category||'Food',unit:item.unit||'each',current_stock:item.current_stock??'',min_stock:item.min_stock??'',max_stock:item.max_stock??'',cost:item.cost||'',supplier:item.supplier||'',supplier_id:item.supplier_id||null,forecast_per_event:item.forecast_per_event||''});
+  const [form,setForm]=useState({id:item.id,name:item.name||'',category:item.category||categories[0]||'Food',unit:item.unit||'each',current_stock:item.current_stock??'',min_stock:item.min_stock??'',max_stock:item.max_stock??'',cost:item.cost||'',supplier:item.supplier||'',supplier_id:item.supplier_id||null,forecast_per_event:item.forecast_per_event||'',barcode:item.barcode||''});
+  const [barcodeErr,setBarcodeErr]=useState('');
   function set(k,v){setForm(f=>({...f,[k]:v}));}
+  function validateBarcode(v){
+    if(!v) return '';
+    const d=v.replace(/\D/g,'');
+    if([6,8,12,13].includes(d.length)) return '';
+    return 'Must be 6, 8, 12, or 13 digits (UPC-E, EAN-8, UPC-A, EAN-13)';
+  }
+  function handleBarcode(v){
+    set('barcode',v);
+    setBarcodeErr(validateBarcode(v));
+  }
+  async function handleSave(){
+    if(barcodeErr) return;
+    await onSave(form);
+  }
+  const catOpts = categories.length ? categories : INV_CATEGORIES;
   return <div className="modal"><div className="modal-card">
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}><h3 style={{margin:0}}>{isNew?'Add':'Edit'} Inventory Item</h3><button onClick={onClose}>×</button></div>
     <div className="form">
       <label><div className="muted">Name</div><input value={form.name} onChange={e=>set('name',e.target.value)}/></label>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-        <label><div className="muted">Category</div><Sel value={form.category} onChange={v=>set('category',v)} options={INV_CATEGORIES}/></label>
+        <label><div className="muted">Category</div>
+          <select value={form.category} onChange={e=>set('category',e.target.value)} style={{background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:12,padding:'11px 13px',width:'100%',fontSize:'inherit'}}>
+            {catOpts.map(o=><option key={o} value={o}>{o}</option>)}
+            {form.category&&!catOpts.includes(form.category)&&<option value={form.category}>{form.category} (legacy)</option>}
+          </select>
+        </label>
         <label><div className="muted">Unit</div><Sel value={form.unit} onChange={v=>set('unit',v)} options={UNIT_OPTIONS}/></label>
       </div>
+      <label>
+        <div className="muted">Barcode <span style={{fontSize:11,opacity:.6}}>(UPC-A, UPC-E, EAN-13, EAN-8 — optional)</span></div>
+        <input value={form.barcode} onChange={e=>handleBarcode(e.target.value)} placeholder="Scan or type barcode digits…" inputMode="numeric"/>
+        {barcodeErr&&<div style={{fontSize:11,color:'#fca5a5',marginTop:3}}>{barcodeErr}</div>}
+      </label>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
         <label><div className="muted">Current Stock</div><input type="number" step="0.01" value={form.current_stock} onChange={e=>set('current_stock',e.target.value)}/></label>
         <label><div className="muted">Min Stock</div><input type="number" step="0.01" value={form.min_stock} onChange={e=>set('min_stock',e.target.value)}/></label>
@@ -549,7 +618,7 @@ function InventoryModal({item,onSave,onClose,suppliers=[]}){
           {suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
       </label>
-      <button className="primary" onClick={()=>onSave(form)}>Save</button>
+      <button className="primary" onClick={handleSave}>Save</button>
     </div>
   </div></div>;
 }
@@ -1522,10 +1591,206 @@ function EditModal({modal,save,close}){const [form,setForm]=useState(modal.item|
 function Today({overview}){const m=overview.metrics;return <><div className="grid metrics"><Metric label="Inventory Alerts" value={m.inventory_alerts} note="At or below minimum"/><Metric label="Catering Pipeline" value={'$'+Number(m.catering_pipeline||0).toLocaleString(undefined,{maximumFractionDigits:0})} note="Open value"/><Metric label="Open Tasks" value={m.open_tasks} note="Needs action"/><Metric label="Active Staff" value={m.active_staff} note="On/active"/><Metric label="Avg Menu Margin" value={pct(m.avg_menu_margin)} note="Food cost health"/></div><div className="grid two" style={{marginTop:20}}><div className="card"><h3>Operational Timeline</h3><div className="list">{overview.timeline.map((x,i)=><div className="row" key={i}><div><strong>{x.title}</strong><span>{x.kind} · {x.type} · {String(x.time||'Today').slice(0,10)}</span></div><Badge color={x.priority==='High'?'red':'orange'}>{x.status}</Badge></div>)}</div></div><div className="card"><h3>AI Recommendations</h3><div className="list">{overview.insights.length?overview.insights.map((x,i)=><div className="row" key={i}><div><strong>{x.title}</strong><span>{x.detail}<br/>{x.action}</span></div><Badge color={x.level==='Critical'?'red':x.level==='Warning'?'yellow':'green'}>{x.level}</Badge></div>):<p className="muted">No major risks.</p>}</div></div></div></>;}
 function AiPage({aiPrompt,setAiPrompt,aiAnswer,setAiAnswer,api}){async function ask(){setAiAnswer('Thinking…');const r=await api('/api/ai/ask',{method:'POST',body:JSON.stringify({prompt:aiPrompt})});setAiAnswer(r.text);}return <div className="grid two"><div className="card"><h3>AI Copilot</h3><p className="muted">Rules-based until AI_ENABLED=true.</p><div className="form"><textarea value={aiPrompt} onChange={e=>setAiPrompt(e.target.value)}/><button className="primary" onClick={ask}>Ask AI</button></div></div><div className="card"><h3>Answer</h3><pre style={{whiteSpace:'pre-wrap'}}>{aiAnswer||'Ask a question about operations.'}</pre></div></div>;}
 
+// ── Barcode Scanner Modal ─────────────────────────────────────────────────────
+// Supports:
+//   • Camera scanning via ZXing (UPC-A, UPC-E, EAN-13, EAN-8) on HTTPS/localhost
+//   • USB/Bluetooth keyboard-wedge scanners (input field, no camera required)
+function BarcodeScanModal({onScan, onClose}){
+  const videoRef   = React.useRef(null);
+  const inputRef   = React.useRef(null);
+  const readerRef  = React.useRef(null);
+  const [mode,     setMode]     = useState('input');  // 'input' | 'camera'
+  const [manual,   setManual]   = useState('');
+  const [camErr,   setCamErr]   = useState('');
+  const [scanning, setScanning] = useState(false);
+  const [lastScan, setLastScan] = useState('');
+
+  // Keyboard-wedge scanners type fast and end with Enter.
+  // Focus the input field immediately when the modal opens.
+  useEffect(()=>{ if(mode==='input') setTimeout(()=>inputRef.current?.focus(),50); },[mode]);
+
+  // Camera mode — lazy-load ZXing so it doesn't bloat the initial bundle.
+  useEffect(()=>{
+    if(mode!=='camera') return;
+    let active = true;
+    setCamErr(''); setScanning(true);
+    (async()=>{
+      try {
+        const { BrowserMultiFormatReader, NotFoundException } = await import('@zxing/browser');
+        const reader = new BrowserMultiFormatReader();
+        readerRef.current = reader;
+        const devices = await BrowserMultiFormatReader.listVideoInputDevices();
+        if(!devices.length){ setCamErr('No camera found.'); setScanning(false); return; }
+        // Prefer rear camera on mobile.
+        const device = devices.find(d=>/back|rear|environment/i.test(d.label)) || devices[devices.length-1];
+        await reader.decodeFromVideoDevice(device.deviceId, videoRef.current, (result, err) => {
+          if(!active) return;
+          if(result){
+            const text = result.getText();
+            setLastScan(text);
+            onScan(text);
+          }
+          // NotFoundException fires every frame with no barcode — ignore it.
+        });
+      } catch(e){
+        if(!active) return;
+        if(e.name==='NotAllowedError') setCamErr('Camera permission denied. Use manual entry or a keyboard-wedge scanner.');
+        else if(e.name==='NotFoundError') setCamErr('No camera found.');
+        else setCamErr('Camera unavailable: '+e.message);
+        setScanning(false);
+      }
+    })();
+    return ()=>{ active=false; readerRef.current?.reset(); };
+  },[mode]);
+
+  function submitManual(e){
+    e.preventDefault();
+    const v = manual.trim();
+    if(!v) return;
+    const digits = v.replace(/\D/g,'');
+    if(![6,8,12,13].includes(digits.length)){
+      setCamErr('Enter 6, 8, 12, or 13 digits (UPC-E, EAN-8, UPC-A, EAN-13).');
+      return;
+    }
+    setCamErr('');
+    setManual('');
+    onScan(digits);
+  }
+
+  const isSecure = typeof window !== 'undefined' &&
+    (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+  return <div className="modal"><div className="modal-card" style={{width:'min(480px,100%)'}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+      <h3 style={{margin:0}}>📷 Scan Barcode</h3>
+      <button onClick={onClose}>×</button>
+    </div>
+
+    <div style={{display:'flex',gap:8,marginBottom:16}}>
+      <button onClick={()=>{setMode('input');setCamErr('');}} style={{flex:1,background:mode==='input'?'rgba(251,146,60,.25)':'rgba(255,255,255,.06)',border:mode==='input'?'1px solid #fb923c':'1px solid rgba(255,255,255,.1)',borderRadius:10,padding:'8px',color:'white',cursor:'pointer'}}>
+        ⌨️ Manual / Wedge
+      </button>
+      <button onClick={()=>{if(!isSecure){setCamErr('Camera requires HTTPS or localhost.');return;}setMode('camera');setCamErr('');}} style={{flex:1,background:mode==='camera'?'rgba(251,146,60,.25)':'rgba(255,255,255,.06)',border:mode==='camera'?'1px solid #fb923c':'1px solid rgba(255,255,255,.1)',borderRadius:10,padding:'8px',color:'white',cursor:'pointer'}}>
+        📷 Camera
+      </button>
+    </div>
+
+    {mode==='input' && <form onSubmit={submitManual} className="form">
+      <label>
+        <div className="muted">Barcode digits <span style={{fontSize:11,opacity:.6}}>(or scan with USB/Bluetooth wedge)</span></div>
+        <input ref={inputRef} value={manual} onChange={e=>setManual(e.target.value)}
+          inputMode="numeric" placeholder="Scan or type barcode…" autoFocus/>
+      </label>
+      {camErr&&<div className="badge red" style={{borderRadius:10,padding:'8px 12px',fontSize:13}}>{camErr}</div>}
+      <div style={{display:'flex',gap:10}}>
+        <button className="primary" type="submit">Look Up</button>
+        <button type="button" onClick={onClose}>Cancel</button>
+      </div>
+    </form>}
+
+    {mode==='camera' && <div>
+      <video ref={videoRef} style={{width:'100%',borderRadius:10,background:'#000',minHeight:200}} autoPlay muted playsInline/>
+      {scanning&&!camErr&&<p className="muted" style={{textAlign:'center',fontSize:12,marginTop:8}}>Point camera at barcode…</p>}
+      {camErr&&<div className="badge red" style={{borderRadius:10,padding:'8px 12px',fontSize:13,marginTop:8}}>{camErr}</div>}
+      {lastScan&&<p className="muted" style={{textAlign:'center',fontSize:12,marginTop:4}}>Last scan: {lastScan}</p>}
+      <button onClick={onClose} style={{width:'100%',marginTop:12}}>Close</button>
+    </div>}
+  </div></div>;
+}
+
 // ── Settings Page ────────────────────────────────────────────────────────────
 function SettingsPage({api, logout}){
   return <div className="grid two" style={{alignItems:'start'}}>
     <ChangePasswordForm api={api} logout={logout}/>
+    <InventoryCategoriesManager api={api}/>
+  </div>;
+}
+
+function InventoryCategoriesManager({api}){
+  const [cats,    setCats]    = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [newName, setNewName] = useState('');
+  const [saving,  setSaving]  = useState(false);
+  const [error,   setError]   = useState('');
+
+  async function load(){
+    try { setCats(await api('/api/inventory-categories')); }
+    catch(e){ setError('Failed to load categories.'); }
+    finally { setLoading(false); }
+  }
+  useEffect(()=>{ load(); },[]);
+
+  async function addCat(e){
+    e.preventDefault();
+    const name = newName.trim();
+    if(!name) return;
+    setSaving(true); setError('');
+    try {
+      await api('/api/inventory-categories',{method:'POST',body:JSON.stringify({name})});
+      setNewName('');
+      await load();
+    } catch(e){
+      setError(e.message.includes('409')||e.message.includes('already')?'That category name already exists.':'Failed to add category.');
+    } finally { setSaving(false); }
+  }
+
+  async function rename(id, name){
+    const trimmed = name.trim();
+    if(!trimmed) return;
+    try {
+      await api(`/api/inventory-categories/${id}`,{method:'PUT',body:JSON.stringify({name:trimmed})});
+      await load();
+    } catch(e){ setError('Rename failed: '+e.message); }
+  }
+
+  async function toggleActive(id, active){
+    try {
+      await api(`/api/inventory-categories/${id}`,{method:'PUT',body:JSON.stringify({active})});
+      await load();
+    } catch(e){ setError('Update failed.'); }
+  }
+
+  async function moveOrder(id, direction){
+    const idx = cats.findIndex(c=>c.id===id);
+    if(idx<0) return;
+    const swap = cats[idx+direction];
+    if(!swap) return;
+    try {
+      await Promise.all([
+        api(`/api/inventory-categories/${id}`,{method:'PUT',body:JSON.stringify({sort_order:swap.sort_order})}),
+        api(`/api/inventory-categories/${swap.id}`,{method:'PUT',body:JSON.stringify({sort_order:cats[idx].sort_order})}),
+      ]);
+      await load();
+    } catch(e){ setError('Reorder failed.'); }
+  }
+
+  if(loading) return <div className="card"><p className="muted">Loading categories…</p></div>;
+
+  return <div className="card">
+    <h3 style={{margin:'0 0 4px'}}>Inventory Categories</h3>
+    <p className="muted" style={{margin:'0 0 14px',fontSize:13}}>Deactivating a category hides it from new items but preserves existing assignments.</p>
+    {error&&<div className="badge red" style={{borderRadius:10,padding:'8px 12px',marginBottom:10,fontSize:13}}>{error}</div>}
+    <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:14}}>
+      {cats.map((c,i)=><div key={c.id} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 10px',background:'rgba(255,255,255,.04)',borderRadius:10,opacity:c.active?1:.5}}>
+        <div style={{flex:1,fontSize:13,fontWeight:c.active?600:400}}>{c.name}</div>
+        <span className="badge" style={{fontSize:10,background:c.active?'rgba(34,197,94,.18)':'rgba(239,68,68,.2)',color:c.active?'#86efac':'#fca5a5'}}>{c.active?'Active':'Hidden'}</span>
+        <button onClick={()=>moveOrder(c.id,-1)} disabled={i===0} style={{padding:'3px 7px',fontSize:11}} title="Move up">↑</button>
+        <button onClick={()=>moveOrder(c.id,1)} disabled={i===cats.length-1} style={{padding:'3px 7px',fontSize:11}} title="Move down">↓</button>
+        <button onClick={()=>{
+          const n=prompt('Rename category:',c.name);
+          if(n&&n.trim()&&n.trim()!==c.name) rename(c.id,n);
+        }} style={{padding:'3px 8px',fontSize:11}}>Rename</button>
+        <button onClick={()=>toggleActive(c.id,!c.active)}
+          style={{padding:'3px 8px',fontSize:11,background:c.active?'rgba(239,68,68,.2)':'rgba(34,197,94,.18)',color:c.active?'#fca5a5':'#86efac',border:'none',borderRadius:6,cursor:'pointer'}}>
+          {c.active?'Deactivate':'Activate'}
+        </button>
+      </div>)}
+    </div>
+    <form onSubmit={addCat} style={{display:'flex',gap:8}}>
+      <input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="New category name…"
+        style={{flex:1,background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:10,padding:'8px 12px',fontSize:13}}/>
+      <button className="primary" type="submit" disabled={saving||!newName.trim()}>Add</button>
+    </form>
   </div>;
 }
 

@@ -25,7 +25,7 @@ const tableMap = {
 };
 
 const writableFields = {
-  inventory: ['name','category','unit','current_stock','min_stock','max_stock','cost','supplier','supplier_id','forecast_per_event'],
+  inventory: ['name','category','unit','current_stock','min_stock','max_stock','cost','supplier','supplier_id','forecast_per_event','barcode'],
   menu: ['name','category','price','cost','active','description','prep_notes','recipe_id','portions'],
   catering: ['client','date','guests','status','value','deposit','location','service_type','notes','readiness'],
   events: ['name','date','location','status','expected_sales','notes'],

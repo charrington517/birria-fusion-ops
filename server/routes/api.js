@@ -157,6 +157,102 @@ router.get('/recipes/:id/cost', async (req, res, next) => {
   try { res.json(await calculateRecipeCost(req.params.id)); } catch (err) { next(err); }
 });
 
+// Barcode lookup — returns the matching inventory item or 404.
+router.get('/inventory/barcode/:barcode', async (req, res, next) => {
+  try {
+    const { barcode } = req.params;
+    const normalized = normalizeBarcode(barcode);
+    if (!normalized) return res.status(400).json({ error: 'Invalid barcode format' });
+    // Match on both the supplied value and its normalized equivalent.
+    const result = await query(
+      'SELECT * FROM inventory WHERE barcode = $1 OR barcode = $2 LIMIT 1',
+      [barcode, normalized]
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Barcode not found', barcode: normalized });
+    res.json(result.rows[0]);
+  } catch (err) { next(err); }
+});
+
+// Inventory categories CRUD.
+router.get('/inventory-categories', async (req, res, next) => {
+  try {
+    const result = await query('SELECT * FROM inventory_categories ORDER BY sort_order, name');
+    res.json(result.rows);
+  } catch (err) { next(err); }
+});
+
+router.post('/inventory-categories', async (req, res, next) => {
+  try {
+    const { name, sort_order } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ error: 'name is required' });
+    const maxOrder = await query('SELECT COALESCE(MAX(sort_order),0)+10 AS next FROM inventory_categories');
+    const result = await query(
+      'INSERT INTO inventory_categories (name, sort_order, active) VALUES ($1, $2, TRUE) RETURNING *',
+      [name.trim(), sort_order ?? maxOrder.rows[0].next]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Category name already exists' });
+    next(err);
+  }
+});
+
+router.put('/inventory-categories/:id', async (req, res, next) => {
+  try {
+    const { name, sort_order, active } = req.body;
+    const sets = []; const vals = [];
+    if (name !== undefined)       { sets.push(`name=$${vals.push(name.trim())}`); }
+    if (sort_order !== undefined) { sets.push(`sort_order=$${vals.push(sort_order)}`); }
+    if (active !== undefined)     { sets.push(`active=$${vals.push(active)}`); }
+    if (!sets.length) return res.status(400).json({ error: 'No fields to update' });
+    vals.push(req.params.id);
+    const result = await query(
+      `UPDATE inventory_categories SET ${sets.join(',')} WHERE id=$${vals.length} RETURNING *`, vals
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Category name already exists' });
+    next(err);
+  }
+});
+
+// Helper: normalize barcode to canonical form.
+// UPC-E (6-digit) is expanded to UPC-A (12-digit).
+// UPC-A (12-digit) is left as-is.
+// EAN-13 (13-digit) is left as-is.
+// EAN-8 (8-digit) is left as-is.
+function normalizeBarcode(raw) {
+  const digits = (raw || '').replace(/\D/g, '');
+  if (digits.length === 12) return digits;           // UPC-A
+  if (digits.length === 13) return digits;           // EAN-13
+  if (digits.length === 8)  return digits;           // EAN-8
+  if (digits.length === 6)  return expandUPCE(digits); // UPC-E → UPC-A
+  return null;
+}
+
+function expandUPCE(s) {
+  // s is 6 digits (no number system, no check digit).
+  // Expands to 12-digit UPC-A including computed check digit.
+  const d = s.split('');
+  let upcA11;
+  switch (d[5]) {
+    case '0': case '1': case '2':
+      upcA11 = '0'+d[0]+d[1]+d[2]+d[5]+'0000'+d[3]+d[4]; break;
+    case '3':
+      upcA11 = '0'+d[0]+d[1]+d[2]+d[3]+'00000'+d[4]; break;
+    case '4':
+      upcA11 = '0'+d[0]+d[1]+d[2]+d[3]+d[4]+'00000'; break;
+    default:
+      upcA11 = '0'+d[0]+d[1]+d[2]+d[3]+d[4]+'0000'+d[5]; break;
+  }
+  const digits = upcA11.split('').map(Number);
+  const odd  = digits.filter((_,i)=>i%2===0).reduce((a,b)=>a+b,0);
+  const even = digits.filter((_,i)=>i%2===1).reduce((a,b)=>a+b,0);
+  const check = (10 - ((odd*3+even)%10)) % 10;
+  return upcA11 + check;
+}
+
 router.get('/inventory/consumption-preview', async (req, res, next) => {
   try {
     const { menu_item_id, quantity } = req.query;
