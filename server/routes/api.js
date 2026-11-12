@@ -270,6 +270,169 @@ router.get('/inventory/:id/purchase-preview', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── Unified transactional save ──────────────────────────────────────────────
+// POST /inventory/save
+//
+// Handles both new-item creation and existing-item update in a single
+// PostgreSQL transaction.  No partial writes are possible: if any step fails
+// the entire transaction is rolled back and the DB is left unchanged.
+//
+// Body (new item — no id field):
+//   All writable inventory fields + optional purchase fields.
+//   When purchase fields are present, cost_per_base_unit is computed and
+//   persisted in the same transaction.
+//
+// Body (existing item — id field required):
+//   id                  — inventory item id
+//   <inventory fields>  — any writable non-purchase fields to update
+//   purchase_unit, pkg_qty, purchase_price, conversion_factor — purchase fields
+//   sync_ingredient     — true | false | undefined (see PUT /purchase semantics)
+//
+// Response:
+//   { inventory: <row>, linked_ingredient: <row|null>,
+//     _unit_mismatch: <obj|undefined>, _ingredient_skipped: <bool|undefined> }
+router.post('/inventory/save', async (req, res, next) => {
+  try {
+    const {
+      id,
+      purchase_unit, pkg_qty, purchase_price, conversion_factor, sync_ingredient,
+      ...baseFields
+    } = req.body;
+
+    const hasPurchase = purchase_price != null || pkg_qty != null || purchase_unit != null;
+
+    // Allowed writable base fields (mirrors crud.js writableFields for inventory,
+    // minus the purchase/cost fields which are handled explicitly here).
+    const BASE_FIELDS = ['name','category','unit','current_stock','min_stock','max_stock',
+                         'cost','supplier','supplier_id','forecast_per_event','barcode'];
+
+    const result = await withTransaction(async (client) => {
+      let inv;
+
+      if (!id) {
+        // ── New item ──────────────────────────────────────────────────────────
+        const allowed = Object.keys(baseFields).filter(k => BASE_FIELDS.includes(k));
+        if (!allowed.length) throw Object.assign(new Error('No valid fields for new item'), { status: 400 });
+        const vals  = allowed.map(k => baseFields[k]);
+        const cols  = allowed.join(',');
+        const phs   = allowed.map((_, i) => `$${i + 1}`).join(',');
+        const ins   = await client.query(
+          `INSERT INTO inventory (${cols}) VALUES (${phs}) RETURNING *`, vals
+        );
+        inv = ins.rows[0];
+        await client.query('INSERT INTO activity (message) VALUES ($1)',
+          [`Added inventory: ${inv.name || inv.id}`]);
+      } else {
+        // ── Existing item — update base fields ────────────────────────────────
+        const allowed = Object.keys(baseFields).filter(k => BASE_FIELDS.includes(k));
+        if (allowed.length) {
+          const sets = allowed.map((k, i) => `${k}=$${i + 1}`).join(',');
+          const vals = [...allowed.map(k => baseFields[k]), id];
+          const upd  = await client.query(
+            `UPDATE inventory SET ${sets} WHERE id=$${vals.length} RETURNING *`, vals
+          );
+          if (!upd.rows.length) throw Object.assign(new Error('Inventory item not found'), { status: 404 });
+          inv = upd.rows[0];
+          await client.query('INSERT INTO activity (message) VALUES ($1)',
+            [`Updated inventory: ${inv.name || id}`]);
+        } else {
+          // No base fields — just fetch current row.
+          const sel = await client.query('SELECT * FROM inventory WHERE id=$1', [id]);
+          if (!sel.rows.length) throw Object.assign(new Error('Inventory item not found'), { status: 404 });
+          inv = sel.rows[0];
+        }
+      }
+
+      if (!hasPurchase) {
+        return { inv, unitMismatch: null, ingredientSkipped: false };
+      }
+
+      // ── Purchase costing (new or existing) ───────────────────────────────────
+      const pu = purchase_unit  ?? inv.purchase_unit;
+      const pq = pkg_qty        != null ? Number(pkg_qty)        : inv.pkg_qty;
+      const pp = purchase_price != null ? Number(purchase_price) : inv.purchase_price;
+      const cf = conversion_factor != null ? Number(conversion_factor) : inv.conversion_factor;
+
+      let cpbu = null;
+      if (pp && pq) {
+        try {
+          cpbu = await computeCostPerBaseUnit(pp, pq, pu, inv.unit, cf);
+        } catch (convErr) {
+          throw Object.assign(new Error(convErr.message), { status: 422 });
+        }
+      }
+
+      const purchUpd = await client.query(
+        `UPDATE inventory
+         SET purchase_unit=$1, pkg_qty=$2, purchase_price=$3,
+             cost_per_base_unit=$4, conversion_factor=$5
+         WHERE id=$6 RETURNING *`,
+        [pu, pq, pp, cpbu, cf, inv.id]
+      );
+      inv = purchUpd.rows[0];
+
+      // ── Ingredient sync ───────────────────────────────────────────────────────
+      let unitMismatch = null;
+      let ingredientSkipped = false;
+
+      if (cpbu !== null) {
+        const ingRes = await client.query(
+          'SELECT id, unit, name, cost, servings_per_purchase FROM ingredients WHERE inventory_item_id=$1 LIMIT 1',
+          [inv.id]
+        );
+        if (ingRes.rows.length) {
+          const ing = ingRes.rows[0];
+          const isNewModel = Number(ing.servings_per_purchase) === 1 && Number(ing.cost) === 0;
+          const shouldSync = sync_ingredient === true
+            ? true
+            : sync_ingredient === false
+              ? false
+              : isNewModel;
+
+          if (shouldSync) {
+            let ingCost = cpbu;
+            try {
+              ingCost = await costPerIngredientUnit(cpbu, inv.unit, ing.unit, cf);
+            } catch (_) {
+              ingCost = null;
+            }
+            if (ingCost !== null) {
+              await client.query(
+                'UPDATE ingredients SET cost=$1, servings_per_purchase=1 WHERE id=$2',
+                [Number(ingCost.toFixed(6)), ing.id]
+              );
+            } else {
+              unitMismatch = {
+                inventory_unit: inv.unit,
+                ingredient_unit: ing.unit,
+                ingredient_name: ing.name,
+                message: `Cannot convert "${inv.unit}" to "${ing.unit}" — ingredient cost was not updated. ` +
+                         `Edit the ingredient manually or add a conversion_factor.`
+              };
+            }
+          } else {
+            ingredientSkipped = true;
+          }
+        }
+      }
+
+      return { inv, unitMismatch, ingredientSkipped };
+    });
+
+    const response = { inventory: result.inv };
+    if (result.unitMismatch)       response._unit_mismatch      = result.unitMismatch;
+    if (result.ingredientSkipped)  response._ingredient_skipped = true;
+    res.status(id ? 200 : 201).json(response);
+  } catch (err) {
+    const status = err.status || (err.code === '23505' ? 409 : 500);
+    if (status === 409) {
+      return res.status(409).json({ error: 'Barcode already assigned to another item' });
+    }
+    if (status < 500) return res.status(status).json({ error: err.message });
+    next(err);
+  }
+});
+
 // Purchase unit update — updates purchase fields.
 // sync_ingredient: true  → propagate computed cost to linked ingredient (requires confirmation).
 // sync_ingredient: false → save inventory fields only; preserve existing ingredient cost/spp.
