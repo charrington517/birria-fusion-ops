@@ -30,18 +30,9 @@ const assert  = require('assert');
 const http    = require('http');
 const { Pool } = require('pg');
 
+// Load test DB config from .env.test — never derives credentials from production .env.
+require('./helpers/test-db');
 const TEST_DB_URL = process.env.TEST_DATABASE_URL;
-if (!TEST_DB_URL) { console.error('TEST_DATABASE_URL env var required'); process.exit(1); }
-
-const _dbName = TEST_DB_URL.match(/\/([^/?]+)(\?|$)/)?.[1] || '';
-if (_dbName === 'birria_fusion_ops') {
-  console.error('REFUSED: TEST_DATABASE_URL points to production.');
-  process.exit(1);
-}
-
-process.env.DATABASE_URL = TEST_DB_URL;
-process.env.JWT_SECRET   = require('crypto').randomBytes(48).toString('hex');
-process.env.NODE_ENV     = 'test';
 
 const express    = require('express');
 const authRoutes = require('../server/routes/auth');
@@ -439,9 +430,10 @@ async function run() {
     const id = cr.body.inventory.id;
     cleanup.invIds.push(id);
 
-    await req(server, 'POST', '/api/ingredients',
+    const mi = await req(server, 'POST', '/api/ingredients',
       { name: 'Handler Mismatch Ing', unit: 'each', cost: 1.00,
         servings_per_purchase: 1, inventory_item_id: id }, token);
+    if (mi.body?.id) cleanup.ingIds.push(mi.body.id);
 
     const r = await req(server, 'POST', '/api/inventory/save',
       { id, purchase_unit: 'lb', pkg_qty: 5, purchase_price: 10.00,
