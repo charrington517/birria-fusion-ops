@@ -718,8 +718,9 @@ async function run() {
 
   // ── Unit mismatch warnings ───────────────────────────────────────────────
 
-  await test('PUT /purchase — _unit_mismatch returned when propagation skipped', async () => {
+  await test('PUT /purchase — legacy ingredient (spp>1) is skipped without sync_ingredient flag', async () => {
     // Inventory base=oz, ingredient unit=each: no conversion exists.
+    // Legacy ingredient has cost=9.99, spp=5 — should be skipped (not auto-synced).
     const inv = await req(server, 'POST', '/api/inventory', {
       name: 'Mismatch Warn Inv', category: 'Food', unit: 'oz',
       current_stock: 0, min_stock: 0, cost: 0
@@ -733,14 +734,43 @@ async function run() {
 
     const r = await req(server, 'PUT', `/api/inventory/${inv.body.id}/purchase`, {
       purchase_unit: 'lb', pkg_qty: 1, purchase_price: 4.00
+      // no sync_ingredient — legacy ingredient must not be auto-synced
     }, token);
     assert.strictEqual(r.status, 200, JSON.stringify(r.body));
-    assert.ok(r.body._unit_mismatch, 'Should return _unit_mismatch when propagation skipped');
-    assert.strictEqual(r.body._unit_mismatch.inventory_unit, 'oz');
-    assert.strictEqual(r.body._unit_mismatch.ingredient_unit, 'each');
-    assert.ok(r.body._unit_mismatch.message.length > 0);
+    assert.ok(r.body._ingredient_skipped,
+      'Legacy ingredient must be skipped when sync_ingredient is omitted');
 
     // Ingredient cost must be unchanged.
+    const ings = await req(server, 'GET', '/api/ingredients', null, token);
+    const still = ings.body.find(i => i.id === ing.body.id);
+    assert.ok(Math.abs(Number(still.cost) - 9.99) < 0.001, 'Cost must be unchanged');
+    assert.strictEqual(Number(still.servings_per_purchase), 5, 'spp must be unchanged');
+  });
+
+  await test('PUT /purchase — _unit_mismatch returned when sync_ingredient=true but units incompatible', async () => {
+    // Inventory base=oz, ingredient unit=each: no conversion.
+    // User explicitly requests sync — server should report unit_mismatch.
+    const inv = await req(server, 'POST', '/api/inventory', {
+      name: 'SyncMismatch Inv', category: 'Food', unit: 'oz',
+      current_stock: 0, min_stock: 0, cost: 0
+    }, token);
+    createdItems.push(inv.body.id);
+    const ing = await req(server, 'POST', '/api/ingredients', {
+      name: 'SyncMismatch Ing', category: 'Food', unit: 'each',
+      cost: 9.99, servings_per_purchase: 5, inventory_item_id: inv.body.id
+    }, token);
+    createdIngredients.push(ing.body.id);
+
+    const r = await req(server, 'PUT', `/api/inventory/${inv.body.id}/purchase`, {
+      purchase_unit: 'lb', pkg_qty: 1, purchase_price: 4.00,
+      sync_ingredient: true
+    }, token);
+    assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+    assert.ok(r.body._unit_mismatch, 'Should return _unit_mismatch when sync requested but units incompatible');
+    assert.strictEqual(r.body._unit_mismatch.inventory_unit, 'oz');
+    assert.strictEqual(r.body._unit_mismatch.ingredient_unit, 'each');
+
+    // Ingredient cost must still be unchanged (conversion failed).
     const ings = await req(server, 'GET', '/api/ingredients', null, token);
     const still = ings.body.find(i => i.id === ing.body.id);
     assert.ok(Math.abs(Number(still.cost) - 9.99) < 0.001, 'Cost must be unchanged');
@@ -837,6 +867,273 @@ async function run() {
       `spp must be 16, got ${still.servings_per_purchase}`);
     assert.strictEqual(Number(still.inventory_item_id), inv.body.id,
       'inventory_item_id must be set');
+  });
+
+  // ── Migration 006 row-count verification ─────────────────────────────────────────────
+
+  await test('Migration 006: exactly 6 packaging rows were removed from unit_conversions', async () => {
+    // The 6 rows seeded by migration 005 and deleted by 006:
+    //   bag→g, bag→oz, bottle→fl oz, box→each, case→each, pack→each
+    const pairs = [
+      ['bag','g'], ['bag','oz'], ['bottle','fl oz'],
+      ['box','each'], ['case','each'], ['pack','each']
+    ];
+    for (const [from, to] of pairs) {
+      const r = await pool.query(
+        'SELECT 1 FROM unit_conversions WHERE from_unit=$1 AND to_unit=$2',
+        [from, to]
+      );
+      assert.strictEqual(r.rows.length, 0,
+        `Packaging row "${from}→${to}" must not exist in unit_conversions`);
+    }
+  });
+
+  await test('Migration 006: physical bidirectional rows are present (not deleted)', async () => {
+    const expected = [
+      ['lb','oz'], ['oz','g'], ['oz','lb'], ['g','oz'], ['g','lb'],
+      ['fl oz','tbsp'], ['tbsp','fl oz'], ['fl oz','ml'], ['ml','fl oz']
+    ];
+    for (const [from, to] of expected) {
+      const r = await pool.query(
+        'SELECT 1 FROM unit_conversions WHERE from_unit=$1 AND to_unit=$2',
+        [from, to]
+      );
+      assert.strictEqual(r.rows.length, 1,
+        `Physical conversion "${from}→${to}" must exist in unit_conversions`);
+    }
+  });
+
+  // ── Purchase preview endpoint ─────────────────────────────────────────────────────
+
+  await test('GET /purchase-preview — returns proposed cost for linked ingredient', async () => {
+    const inv = await req(server, 'POST', '/api/inventory', {
+      name: 'Preview Test Inv', category: 'Dairy', unit: 'oz',
+      current_stock: 0, min_stock: 0, cost: 0
+    }, token);
+    createdItems.push(inv.body.id);
+    const ing = await req(server, 'POST', '/api/ingredients', {
+      name: 'Preview Test Ing', category: 'Dairy', unit: 'oz',
+      cost: 6.00, servings_per_purchase: 16, inventory_item_id: inv.body.id
+    }, token);
+    createdIngredients.push(ing.body.id);
+
+    // Preview: 30-lb case ($60) → 480 oz → $0.125/oz
+    const r = await req(server, 'GET',
+      `/api/inventory/${inv.body.id}/purchase-preview?purchase_unit=case&pkg_qty=480&purchase_price=60`,
+      null, token);
+    assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+    assert.ok(Math.abs(Number(r.body.cost_per_base_unit) - 0.125) < 0.0001,
+      `Expected cpbu=0.125, got ${r.body.cost_per_base_unit}`);
+    const li = r.body.linked_ingredient;
+    assert.ok(li, 'Should return linked_ingredient');
+    assert.strictEqual(li.name, 'Preview Test Ing');
+    assert.ok(Math.abs(Number(li.current_cost) - 6.00) < 0.001);
+    assert.strictEqual(Number(li.current_spp), 16);
+    assert.ok(Math.abs(Number(li.current_cost_per_unit) - 0.375) < 0.0001,
+      `Expected current_cost_per_unit=0.375, got ${li.current_cost_per_unit}`);
+    assert.ok(Math.abs(Number(li.proposed_cost_per_unit) - 0.125) < 0.0001,
+      `Expected proposed_cost_per_unit=0.125, got ${li.proposed_cost_per_unit}`);
+    assert.ok(!li.unit_mismatch, 'oz→oz should have no unit_mismatch');
+  });
+
+  await test('GET /purchase-preview — no linked ingredient returns null', async () => {
+    const inv = await req(server, 'POST', '/api/inventory', {
+      name: 'Preview NoLink Inv', category: 'Food', unit: 'oz',
+      current_stock: 0, min_stock: 0, cost: 0
+    }, token);
+    createdItems.push(inv.body.id);
+    const r = await req(server, 'GET',
+      `/api/inventory/${inv.body.id}/purchase-preview?purchase_unit=lb&pkg_qty=1&purchase_price=4`,
+      null, token);
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.body.linked_ingredient, null);
+  });
+
+  await test('GET /purchase-preview — incompatible units returns unit_mismatch', async () => {
+    const inv = await req(server, 'POST', '/api/inventory', {
+      name: 'Preview Mismatch Inv', category: 'Food', unit: 'oz',
+      current_stock: 0, min_stock: 0, cost: 0
+    }, token);
+    createdItems.push(inv.body.id);
+    const ing = await req(server, 'POST', '/api/ingredients', {
+      name: 'Preview Mismatch Ing', category: 'Food', unit: 'each',
+      cost: 5.00, servings_per_purchase: 10, inventory_item_id: inv.body.id
+    }, token);
+    createdIngredients.push(ing.body.id);
+    const r = await req(server, 'GET',
+      `/api/inventory/${inv.body.id}/purchase-preview?purchase_unit=lb&pkg_qty=1&purchase_price=4`,
+      null, token);
+    assert.strictEqual(r.status, 200);
+    assert.ok(r.body.linked_ingredient.unit_mismatch, 'Should report unit_mismatch');
+    assert.strictEqual(r.body.linked_ingredient.proposed_cost_per_unit, null);
+  });
+
+  // ── Legacy costing: sync_ingredient flag ──────────────────────────────────────────────
+
+  await test('Oaxaca Cheese: sync_ingredient=false preserves legacy cost/spp', async () => {
+    // Simulate: inventory base=oz, ingredient cost=$6.00 spp=16 (legacy 16-oz package model)
+    const inv = await req(server, 'POST', '/api/inventory', {
+      name: 'Oaxaca Cheese Sim Inv', category: 'Dairy', unit: 'oz',
+      current_stock: 0, min_stock: 0, cost: 0
+    }, token);
+    createdItems.push(inv.body.id);
+    const ing = await req(server, 'POST', '/api/ingredients', {
+      name: 'Oaxaca Cheese Sim Ing', category: 'Dairy', unit: 'oz',
+      cost: 6.00, servings_per_purchase: 16, inventory_item_id: inv.body.id
+    }, token);
+    createdIngredients.push(ing.body.id);
+
+    // Save purchase info but decline sync.
+    const r = await req(server, 'PUT', `/api/inventory/${inv.body.id}/purchase`, {
+      purchase_unit: 'case', pkg_qty: 480, purchase_price: 60.00,
+      sync_ingredient: false
+    }, token);
+    assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+    assert.ok(r.body._ingredient_skipped, 'Should set _ingredient_skipped=true');
+    assert.ok(Math.abs(Number(r.body.cost_per_base_unit) - 0.125) < 0.0001,
+      'Inventory cost_per_base_unit should be updated');
+
+    // Ingredient cost and spp must be unchanged.
+    const ings = await req(server, 'GET', '/api/ingredients', null, token);
+    const still = ings.body.find(i => i.id === ing.body.id);
+    assert.ok(Math.abs(Number(still.cost) - 6.00) < 0.001, `cost must be $6.00, got $${still.cost}`);
+    assert.strictEqual(Number(still.servings_per_purchase), 16, `spp must be 16, got ${still.servings_per_purchase}`);
+  });
+
+  await test('Oaxaca Cheese: sync_ingredient=true converts to per-unit model', async () => {
+    const inv = await req(server, 'POST', '/api/inventory', {
+      name: 'Oaxaca Cheese Sync Inv', category: 'Dairy', unit: 'oz',
+      current_stock: 0, min_stock: 0, cost: 0
+    }, token);
+    createdItems.push(inv.body.id);
+    const ing = await req(server, 'POST', '/api/ingredients', {
+      name: 'Oaxaca Cheese Sync Ing', category: 'Dairy', unit: 'oz',
+      cost: 6.00, servings_per_purchase: 16, inventory_item_id: inv.body.id
+    }, token);
+    createdIngredients.push(ing.body.id);
+
+    const r = await req(server, 'PUT', `/api/inventory/${inv.body.id}/purchase`, {
+      purchase_unit: 'case', pkg_qty: 480, purchase_price: 60.00,
+      sync_ingredient: true
+    }, token);
+    assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+    assert.ok(!r.body._ingredient_skipped, 'Should not skip when sync_ingredient=true');
+
+    const ings = await req(server, 'GET', '/api/ingredients', null, token);
+    const updated = ings.body.find(i => i.id === ing.body.id);
+    // $60 / 480oz = $0.125/oz
+    assert.ok(Math.abs(Number(updated.cost) - 0.125) < 0.0001,
+      `Expected $0.125/oz, got $${updated.cost}`);
+    assert.strictEqual(Number(updated.servings_per_purchase), 1);
+  });
+
+  await test('Corn Tortilla: sync_ingredient=false preserves legacy cost/spp', async () => {
+    // Simulate: cost=$3.25 spp=22 (pack of 22 tortillas)
+    const inv = await req(server, 'POST', '/api/inventory', {
+      name: 'Corn Tortilla Sim Inv', category: 'Dry Goods', unit: 'each',
+      current_stock: 0, min_stock: 0, cost: 0
+    }, token);
+    createdItems.push(inv.body.id);
+    const ing = await req(server, 'POST', '/api/ingredients', {
+      name: 'Corn Tortilla Sim Ing', category: 'Dry Goods', unit: 'each',
+      cost: 3.25, servings_per_purchase: 22, inventory_item_id: inv.body.id
+    }, token);
+    createdIngredients.push(ing.body.id);
+
+    const r = await req(server, 'PUT', `/api/inventory/${inv.body.id}/purchase`, {
+      purchase_unit: 'pack', pkg_qty: 22, purchase_price: 3.25,
+      sync_ingredient: false
+    }, token);
+    assert.strictEqual(r.status, 200);
+    assert.ok(r.body._ingredient_skipped);
+
+    const ings = await req(server, 'GET', '/api/ingredients', null, token);
+    const still = ings.body.find(i => i.id === ing.body.id);
+    assert.ok(Math.abs(Number(still.cost) - 3.25) < 0.001);
+    assert.strictEqual(Number(still.servings_per_purchase), 22);
+  });
+
+  await test('To-Go Bowl: sync_ingredient=false preserves legacy cost/spp', async () => {
+    // Simulate: cost=$42.00 spp=100 (case of 100 bowls)
+    const inv = await req(server, 'POST', '/api/inventory', {
+      name: 'ToGo Bowl Sim Inv', category: 'Packaging', unit: 'each',
+      current_stock: 0, min_stock: 0, cost: 0
+    }, token);
+    createdItems.push(inv.body.id);
+    const ing = await req(server, 'POST', '/api/ingredients', {
+      name: 'ToGo Bowl Sim Ing', category: 'Packaging', unit: 'each',
+      cost: 42.00, servings_per_purchase: 100, inventory_item_id: inv.body.id
+    }, token);
+    createdIngredients.push(ing.body.id);
+
+    const r = await req(server, 'PUT', `/api/inventory/${inv.body.id}/purchase`, {
+      purchase_unit: 'case', pkg_qty: 100, purchase_price: 42.00,
+      sync_ingredient: false
+    }, token);
+    assert.strictEqual(r.status, 200);
+    assert.ok(r.body._ingredient_skipped);
+
+    const ings = await req(server, 'GET', '/api/ingredients', null, token);
+    const still = ings.body.find(i => i.id === ing.body.id);
+    assert.ok(Math.abs(Number(still.cost) - 42.00) < 0.001);
+    assert.strictEqual(Number(still.servings_per_purchase), 100);
+  });
+
+  await test('New-model ingredient (spp=1, cost=0): auto-syncs without confirmation', async () => {
+    // Ingredients created via create-ingredient start with cost=0, spp=1.
+    // These should auto-sync without requiring sync_ingredient=true.
+    const inv = await req(server, 'POST', '/api/inventory', {
+      name: 'AutoSync Inv', category: 'Food', unit: 'oz',
+      current_stock: 0, min_stock: 0, cost: 0
+    }, token);
+    createdItems.push(inv.body.id);
+    const ing = await req(server, 'POST', '/api/ingredients', {
+      name: 'AutoSync Ing', category: 'Food', unit: 'oz',
+      cost: 0, servings_per_purchase: 1, inventory_item_id: inv.body.id
+    }, token);
+    createdIngredients.push(ing.body.id);
+
+    // No sync_ingredient flag — should auto-sync because cost=0 and spp=1.
+    const r = await req(server, 'PUT', `/api/inventory/${inv.body.id}/purchase`, {
+      purchase_unit: 'lb', pkg_qty: 1, purchase_price: 4.00
+    }, token);
+    assert.strictEqual(r.status, 200);
+    assert.ok(!r.body._ingredient_skipped, 'New-model ingredient should auto-sync');
+
+    const ings = await req(server, 'GET', '/api/ingredients', null, token);
+    const updated = ings.body.find(i => i.id === ing.body.id);
+    // $4/lb → $4/16oz = $0.25/oz
+    assert.ok(Math.abs(Number(updated.cost) - 0.25) < 0.0001,
+      `Expected $0.25/oz, got $${updated.cost}`);
+    assert.strictEqual(Number(updated.servings_per_purchase), 1);
+  });
+
+  await test('Recipe cost unchanged when sync_ingredient=false', async () => {
+    // Verify that declining sync leaves recipe costs exactly as before.
+    const before = await req(server, 'GET', '/api/recipes/1/cost', null, token);
+    assert.strictEqual(before.status, 200);
+    const beforeCost = before.body.total_cost;
+
+    // Create a new inventory item linked to a new ingredient used in no recipe.
+    const inv = await req(server, 'POST', '/api/inventory', {
+      name: 'RecipeSafe Inv', category: 'Food', unit: 'oz',
+      current_stock: 0, min_stock: 0, cost: 0
+    }, token);
+    createdItems.push(inv.body.id);
+    const ing = await req(server, 'POST', '/api/ingredients', {
+      name: 'RecipeSafe Ing', category: 'Food', unit: 'oz',
+      cost: 5.00, servings_per_purchase: 8, inventory_item_id: inv.body.id
+    }, token);
+    createdIngredients.push(ing.body.id);
+
+    await req(server, 'PUT', `/api/inventory/${inv.body.id}/purchase`, {
+      purchase_unit: 'lb', pkg_qty: 1, purchase_price: 4.00,
+      sync_ingredient: false
+    }, token);
+
+    const after = await req(server, 'GET', '/api/recipes/1/cost', null, token);
+    assert.strictEqual(after.body.total_cost, beforeCost,
+      'Recipe cost must be unchanged when sync is declined');
   });
 
   // ── Cleanup ───────────────────────────────────────────────────────────────

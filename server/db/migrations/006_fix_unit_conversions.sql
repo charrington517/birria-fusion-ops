@@ -1,10 +1,13 @@
 -- Migration 006: correct unit_conversions table
--- Removes packaging-type rows that had false universal assumptions
--- (bag=1lb, case=24-count, box=12-count, bottle=1L, pack=12-count).
+-- Removes 6 packaging-type rows that had false universal assumptions:
+--   bag→g (1lb bag = 453.592g), bag→oz (1lb bag = 16oz),
+--   bottle→fl oz (1L bottle = 33.814 fl oz),
+--   box→each (12-count box), case→each (24-count case),
+--   pack→each (12-count pack).
 -- Packaging types have no universal fixed quantity; each inventory item
 -- defines its own package contents via pkg_qty and conversion_factor.
 -- Adds missing bidirectional physical conversions needed for costing.
--- Additive/idempotent: ON CONFLICT DO NOTHING, DELETE is safe to re-run.
+-- Idempotent: ON CONFLICT DO NOTHING; DELETE is safe to re-run (no-op if rows absent).
 
 -- Remove packaging-type universal conversions.
 DELETE FROM unit_conversions

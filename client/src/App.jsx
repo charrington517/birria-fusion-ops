@@ -595,6 +595,7 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
   const [purchaseErr,setPurchaseErr]=useState('');
   const [purchaseWarn,setPurchaseWarn]=useState('');
   const [savingPurchase,setSavingPurchase]=useState(false);
+  const [pendingSync,setPendingSync]=useState(null); // preview data awaiting confirmation
   const [linkedIng,setLinkedIng]=useState(null);
   const [creatingIng,setCreatingIng]=useState(false);
   const [linkingIng,setLinkingIng]=useState(false);
@@ -649,17 +650,56 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
 
   async function savePurchase(){
     if(!item.id) return;
-    setSavingPurchase(true); setPurchaseErr(''); setPurchaseWarn('');
+    setPurchaseErr(''); setPurchaseWarn('');
+
+    const pu=form.purchase_unit||null;
+    const pq=form.pkg_qty?Number(form.pkg_qty):null;
+    const pp=form.purchase_price?Number(form.purchase_price):null;
+    const cf=form.conversion_factor?Number(form.conversion_factor):null;
+
+    // Step 1: fetch preview to check if a legacy ingredient needs confirmation.
+    setSavingPurchase(true);
+    let preview=null;
     try {
-      const result=await api(`/api/inventory/${item.id}/purchase`,{method:'PUT',body:JSON.stringify({
-        purchase_unit:form.purchase_unit||null,
-        pkg_qty:form.pkg_qty?Number(form.pkg_qty):null,
-        purchase_price:form.purchase_price?Number(form.purchase_price):null,
-        conversion_factor:form.conversion_factor?Number(form.conversion_factor):null
-      })});
+      const qs=new URLSearchParams();
+      if(pu) qs.set('purchase_unit',pu);
+      if(pq) qs.set('pkg_qty',pq);
+      if(pp) qs.set('purchase_price',pp);
+      if(cf) qs.set('conversion_factor',cf);
+      preview=await api(`/api/inventory/${item.id}/purchase-preview?${qs}`);
+    } catch(e){
+      const raw=e.message||'';
+      let parsed={}; try{parsed=JSON.parse(raw);}catch{}
+      setPurchaseErr(parsed.error||raw||'Preview failed.');
+      setSavingPurchase(false);
+      return;
+    } finally { setSavingPurchase(false); }
+
+    const li=preview.linked_ingredient;
+    // Legacy model: ingredient has a non-zero cost or spp>1 set before Phase 2.
+    const isLegacy=li&&(Number(li.current_spp)>1||Number(li.current_cost)>0)&&li.proposed_cost_per_unit!==null;
+
+    if(isLegacy){
+      // Show confirmation panel — do not apply yet.
+      setPendingSync({pu,pq,pp,cf,preview});
+      return;
+    }
+
+    // New-model ingredient or no linked ingredient: apply directly.
+    await applyPurchaseSave(pu,pq,pp,cf,undefined);
+  }
+
+  async function applyPurchaseSave(pu,pq,pp,cf,syncIngredient){
+    setSavingPurchase(true); setPurchaseErr(''); setPurchaseWarn(''); setPendingSync(null);
+    try {
+      const body={purchase_unit:pu,pkg_qty:pq,purchase_price:pp,conversion_factor:cf};
+      if(syncIngredient!==undefined) body.sync_ingredient=syncIngredient;
+      const result=await api(`/api/inventory/${item.id}/purchase`,{method:'PUT',body:JSON.stringify(body)});
       await refresh();
       if(result._unit_mismatch){
         setPurchaseWarn(`Saved — but cost was NOT synced to linked ingredient "${result._unit_mismatch.ingredient_name}": ${result._unit_mismatch.message}`);
+      } else if(result._ingredient_skipped){
+        setPurchaseWarn('Purchase info saved. Ingredient cost was not changed.');
       } else {
         setPurchaseErr('Saved.');
       }
@@ -769,7 +809,14 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
           {form.purchase_unit&&form.unit&&form.purchase_unit.toLowerCase()!==form.unit.toLowerCase()&&!cpbu&&<div className="muted" style={{fontSize:11,color:'#fde68a',padding:'4px 0'}}>Cross-unit conversion — save to compute via server.</div>}
           {purchaseErr&&<div style={{fontSize:12,color:purchaseErr==='Saved.'?'#86efac':'#fca5a5',marginTop:4}}>{purchaseErr}</div>}
           {purchaseWarn&&<div style={{fontSize:12,color:'#fde68a',marginTop:4,lineHeight:1.4}}>⚠️ {purchaseWarn}</div>}
-          <button onClick={savePurchase} disabled={savingPurchase} style={{marginTop:8,padding:'7px 14px',fontSize:13}}>{savingPurchase?'Saving…':'Save Purchase Info'}</button>
+          {pendingSync
+            ?<PurchaseSyncConfirm preview={pendingSync.preview}
+                onApply={()=>applyPurchaseSave(pendingSync.pu,pendingSync.pq,pendingSync.pp,pendingSync.cf,true)}
+                onSkip={()=>applyPurchaseSave(pendingSync.pu,pendingSync.pq,pendingSync.pp,pendingSync.cf,false)}
+                onCancel={()=>setPendingSync(null)}
+                saving={savingPurchase}/>
+            :<button onClick={savePurchase} disabled={savingPurchase} style={{marginTop:8,padding:'7px 14px',fontSize:13}}>{savingPurchase?'Previewing…':'Save Purchase Info'}</button>
+          }
         </div>
 
         <div style={{borderTop:'1px solid rgba(255,255,255,.08)',margin:'4px 0 12px',paddingTop:12}}>
@@ -796,6 +843,50 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
       </>}
     </div>
   </div></div>;
+}
+
+// Confirmation panel shown when saving purchase info would change a legacy ingredient's cost.
+function PurchaseSyncConfirm({preview,onApply,onSkip,onCancel,saving}){
+  const li=preview.linked_ingredient;
+  if(!li) return null;
+  const money=v=>v!=null?`$${Number(v).toFixed(4)}`:'—';
+  const pctChange=li.current_cost_per_unit>0&&li.proposed_cost_per_unit!=null
+    ?((li.proposed_cost_per_unit-li.current_cost_per_unit)/li.current_cost_per_unit*100).toFixed(1)
+    :null;
+  return <div style={{marginTop:10,border:'1px solid rgba(253,230,138,.35)',borderRadius:10,padding:12,background:'rgba(253,230,138,.06)'}}>
+    <div style={{fontWeight:700,fontSize:12,color:'#fde68a',marginBottom:8}}>⚠️ Ingredient cost will change — confirm before applying</div>
+    <div style={{fontSize:12,marginBottom:8,color:'rgba(255,255,255,.7)'}}>
+      Linked ingredient: <strong style={{color:'white'}}>{li.name}</strong> (unit: {li.unit})
+    </div>
+    <table style={{width:'100%',fontSize:12,borderCollapse:'collapse',marginBottom:10}}>
+      <tbody>
+        <tr><td style={{color:'rgba(255,255,255,.5)',paddingBottom:4}}>Current cost</td>
+            <td style={{textAlign:'right'}}>{money(li.current_cost)} &nbsp;<span style={{opacity:.5}}>spp={li.current_spp}</span></td></tr>
+        <tr><td style={{color:'rgba(255,255,255,.5)',paddingBottom:4}}>Current cost / {li.unit}</td>
+            <td style={{textAlign:'right',color:'#fbbf24'}}>{money(li.current_cost_per_unit)}</td></tr>
+        <tr><td style={{color:'rgba(255,255,255,.5)',paddingBottom:4}}>Proposed cost / {li.unit}</td>
+            <td style={{textAlign:'right',color:'#86efac'}}>{money(li.proposed_cost_per_unit)}
+              {pctChange!==null&&<span style={{marginLeft:6,fontSize:11,color:Number(pctChange)>0?'#fca5a5':'#86efac'}}>{Number(pctChange)>0?'+':''}{pctChange}%</span>}
+            </td></tr>
+        <tr><td style={{color:'rgba(255,255,255,.5)'}}>New model</td>
+            <td style={{textAlign:'right',opacity:.6}}>cost={money(li.proposed_cost_per_unit)}, spp=1</td></tr>
+      </tbody>
+    </table>
+    <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+      <button onClick={onApply} disabled={saving}
+        style={{padding:'6px 14px',fontSize:12,background:'rgba(134,239,172,.15)',color:'#86efac',border:'1px solid rgba(134,239,172,.3)'}}>
+        {saving?'Applying…':'Apply to Ingredient'}
+      </button>
+      <button onClick={onSkip} disabled={saving}
+        style={{padding:'6px 14px',fontSize:12}}>
+        Skip — Keep Existing Cost
+      </button>
+      <button onClick={onCancel} disabled={saving}
+        style={{padding:'6px 14px',fontSize:12,opacity:.6}}>
+        Cancel
+      </button>
+    </div>
+  </div>;
 }
 
 // Picker shown inside InventoryModal to link an existing unlinked ingredient.

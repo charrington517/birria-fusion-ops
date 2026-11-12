@@ -205,24 +205,90 @@ router.get('/inventory/barcode/:barcode', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// Purchase unit update — updates purchase fields and propagates cost_per_base_unit
-// to the linked ingredient, converting to the ingredient's actual usage unit.
-router.put('/inventory/:id/purchase', async (req, res, next) => {
+// Purchase preview — computes proposed cost change WITHOUT applying it.
+// Returns current ingredient state and proposed new cost so the UI can
+// show a confirmation dialog before the user commits.
+router.get('/inventory/:id/purchase-preview', async (req, res, next) => {
   try {
-    const { purchase_unit, pkg_qty, purchase_price, conversion_factor } = req.body;
+    const { purchase_unit, pkg_qty, purchase_price, conversion_factor } = req.query;
     const id = req.params.id;
 
-    // Fetch current inventory item.
     const invRes = await query('SELECT * FROM inventory WHERE id=$1', [id]);
     if (!invRes.rows.length) return res.status(404).json({ error: 'Inventory item not found' });
     const inv = invRes.rows[0];
 
-    const pu  = purchase_unit  ?? inv.purchase_unit;
-    const pq  = pkg_qty        ?? inv.pkg_qty;
-    const pp  = purchase_price ?? inv.purchase_price;
-    const cf  = conversion_factor !== undefined ? conversion_factor : inv.conversion_factor;
+    const pu = purchase_unit  || inv.purchase_unit;
+    const pq = pkg_qty        != null ? Number(pkg_qty)        : inv.pkg_qty;
+    const pp = purchase_price != null ? Number(purchase_price) : inv.purchase_price;
+    const cf = conversion_factor != null ? Number(conversion_factor) : inv.conversion_factor;
 
-    // Compute cost_per_base_unit (cost per one inventory base unit).
+    let cpbu = null;
+    if (pp && pq) {
+      try {
+        cpbu = await computeCostPerBaseUnit(pp, pq, pu, inv.unit, cf);
+      } catch (convErr) {
+        return res.status(422).json({ error: convErr.message });
+      }
+    }
+
+    // Find linked ingredient.
+    const ingRes = await query(
+      'SELECT id, name, unit, cost, servings_per_purchase FROM ingredients WHERE inventory_item_id=$1 LIMIT 1',
+      [id]
+    );
+
+    if (!ingRes.rows.length) {
+      return res.json({ cost_per_base_unit: cpbu, linked_ingredient: null });
+    }
+
+    const ing = ingRes.rows[0];
+    const currentCostPerUnit = Number(ing.cost) / (Number(ing.servings_per_purchase) || 1);
+
+    let proposedCostPerUnit = null;
+    let unitMismatch = null;
+    if (cpbu !== null) {
+      try {
+        proposedCostPerUnit = await costPerIngredientUnit(cpbu, inv.unit, ing.unit, cf);
+      } catch (_) {
+        unitMismatch = { inventory_unit: inv.unit, ingredient_unit: ing.unit };
+      }
+    }
+
+    res.json({
+      cost_per_base_unit: cpbu,
+      linked_ingredient: {
+        id: ing.id,
+        name: ing.name,
+        unit: ing.unit,
+        current_cost: Number(ing.cost),
+        current_spp: Number(ing.servings_per_purchase),
+        current_cost_per_unit: Number(currentCostPerUnit.toFixed(6)),
+        proposed_cost_per_unit: proposedCostPerUnit !== null ? Number(proposedCostPerUnit.toFixed(6)) : null,
+        unit_mismatch: unitMismatch
+      }
+    });
+  } catch (err) { next(err); }
+});
+
+// Purchase unit update — updates purchase fields.
+// sync_ingredient: true  → propagate computed cost to linked ingredient (requires confirmation).
+// sync_ingredient: false → save inventory fields only; preserve existing ingredient cost/spp.
+// Newly created ingredients (spp=1, cost=0) are synced automatically when sync_ingredient
+// is omitted, for backward compatibility with create-ingredient flow.
+router.put('/inventory/:id/purchase', async (req, res, next) => {
+  try {
+    const { purchase_unit, pkg_qty, purchase_price, conversion_factor, sync_ingredient } = req.body;
+    const id = req.params.id;
+
+    const invRes = await query('SELECT * FROM inventory WHERE id=$1', [id]);
+    if (!invRes.rows.length) return res.status(404).json({ error: 'Inventory item not found' });
+    const inv = invRes.rows[0];
+
+    const pu = purchase_unit  ?? inv.purchase_unit;
+    const pq = pkg_qty        ?? inv.pkg_qty;
+    const pp = purchase_price ?? inv.purchase_price;
+    const cf = conversion_factor !== undefined ? conversion_factor : inv.conversion_factor;
+
     let cpbu = null;
     if (pp && pq) {
       try {
@@ -233,7 +299,6 @@ router.put('/inventory/:id/purchase', async (req, res, next) => {
     }
 
     const updated = await withTransaction(async (client) => {
-      // Update inventory purchase fields.
       const invUpd = await client.query(
         `UPDATE inventory
          SET purchase_unit=$1, pkg_qty=$2, purchase_price=$3,
@@ -242,44 +307,64 @@ router.put('/inventory/:id/purchase', async (req, res, next) => {
         [pu, pq, pp, cpbu, cf, id]
       );
 
-      // Propagate to linked ingredient if one exists.
       let unitMismatch = null;
+      let ingredientSkipped = false;
+
       if (cpbu !== null) {
         const ingRes = await client.query(
-          'SELECT id, unit, name FROM ingredients WHERE inventory_item_id=$1 LIMIT 1', [id]
+          'SELECT id, unit, name, cost, servings_per_purchase FROM ingredients WHERE inventory_item_id=$1 LIMIT 1',
+          [id]
         );
         if (ingRes.rows.length) {
           const ing = ingRes.rows[0];
-          let ingCost = cpbu;
-          try {
-            ingCost = await costPerIngredientUnit(cpbu, inv.unit, ing.unit, cf);
-          } catch (_) {
-            // Incompatible units (e.g. oz → each): leave ingredient cost unchanged.
-            ingCost = null;
-          }
-          if (ingCost !== null) {
-            await client.query(
-              'UPDATE ingredients SET cost=$1, servings_per_purchase=1 WHERE id=$2',
-              [Number(ingCost.toFixed(6)), ing.id]
-            );
+
+          // Determine whether to propagate.
+          // sync_ingredient=true  → always propagate (user confirmed).
+          // sync_ingredient=false → never propagate (user declined).
+          // sync_ingredient omitted → auto-propagate only for new-model ingredients
+          //   (spp=1 and cost=0), which were created by create-ingredient and have
+          //   never had a legacy cost set.
+          const isNewModel = Number(ing.servings_per_purchase) === 1 && Number(ing.cost) === 0;
+          const shouldSync = sync_ingredient === true
+            ? true
+            : sync_ingredient === false
+              ? false
+              : isNewModel; // omitted: auto only for new-model
+
+          if (shouldSync) {
+            let ingCost = cpbu;
+            try {
+              ingCost = await costPerIngredientUnit(cpbu, inv.unit, ing.unit, cf);
+            } catch (_) {
+              ingCost = null;
+            }
+            if (ingCost !== null) {
+              await client.query(
+                'UPDATE ingredients SET cost=$1, servings_per_purchase=1 WHERE id=$2',
+                [Number(ingCost.toFixed(6)), ing.id]
+              );
+            } else {
+              unitMismatch = {
+                inventory_unit: inv.unit,
+                ingredient_unit: ing.unit,
+                ingredient_name: ing.name,
+                message: `Cannot convert "${inv.unit}" to "${ing.unit}" — ingredient cost was not updated. ` +
+                         `Edit the ingredient manually or add a conversion_factor.`
+              };
+            }
           } else {
-            // Signal to the caller that cost was NOT propagated.
-            unitMismatch = {
-              inventory_unit: inv.unit,
-              ingredient_unit: ing.unit,
-              ingredient_name: ing.name,
-              message: `Cannot convert "${inv.unit}" to "${ing.unit}" — ingredient cost was not updated. ` +
-                       `Edit the ingredient manually or add a conversion_factor.`
-            };
+            // User declined sync or ingredient has legacy cost model.
+            ingredientSkipped = true;
           }
         }
       }
 
-      return { inv: invUpd.rows[0], unitMismatch };
+      return { inv: invUpd.rows[0], unitMismatch, ingredientSkipped };
     });
 
     const response = updated.inv;
-    if (updated.unitMismatch) response._unit_mismatch = updated.unitMismatch;
+    if (updated.unitMismatch)     response._unit_mismatch      = updated.unitMismatch;
+    if (updated.ingredientSkipped) response._ingredient_skipped = true;
     res.json(response);
   } catch (err) { next(err); }
 });
