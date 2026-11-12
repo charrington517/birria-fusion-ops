@@ -645,51 +645,49 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
   }
   function handleBarcode(v){ set('barcode',v); setBarcodeErr(validateBarcode(v)); }
 
+  // handleSave: new items (with or without purchase fields) and existing items
+  // with no purchase fields. For new items that include purchase fields, creates
+  // the item first then immediately applies purchase costing so cost_per_base_unit
+  // is computed in the same user action — no unexplained second save required.
   async function handleSave(){
     if(barcodeErr) return;
     setSaving(true); setSaveErr('');
+    const hasPurchase=!!(form.purchase_price||form.pkg_qty||form.purchase_unit);
     try {
-      await onSave(form);
-      // onSave closes the modal for new items. For existing items with purchase
-      // fields, we need to run the purchase preview AFTER the CRUD save but
-      // onSave also closes the modal. So we use a direct API call here instead
-      // of onSave when purchase fields are present on an existing item.
+      if(isNew && hasPurchase){
+        // Step 1: create item via CRUD to get an id.
+        const created=await api('/api/inventory',{method:'POST',body:JSON.stringify(form)});
+        const newId=created.id;
+        if(!newId) throw new Error('Item created but no id returned.');
+        // Step 2: apply purchase costing atomically on the new id.
+        const pu=form.purchase_unit||null;
+        const pq=form.pkg_qty?Number(form.pkg_qty):null;
+        const pp=form.purchase_price?Number(form.purchase_price):null;
+        const cf=form.conversion_factor?Number(form.conversion_factor):null;
+        await api(`/api/inventory/${newId}/purchase`,{method:'PUT',body:JSON.stringify({purchase_unit:pu,pkg_qty:pq,purchase_price:pp,conversion_factor:cf})});
+        await refresh();
+        onClose();
+      } else {
+        await onSave(form);
+      }
     } catch(e){
-      const raw=e.message||''; let parsed={}; try{parsed=JSON.parse(raw);}catch{}
+      const raw=e.message||''; let parsed={}; try{parsed=JSON.parse(raw);}catch(x){}
       setSaveErr(parsed.error||raw||'Save failed.');
     } finally { setSaving(false); }
   }
 
-  // Unified save: saves item fields then immediately runs purchase preview.
-  // Called by the single Save button when purchase fields are present.
+  // handleSaveWithPurchase: existing items with purchase fields.
+  // Preview-first: fetches cost preview BEFORE writing anything so a preview
+  // failure leaves the database completely unchanged. The PUT /purchase call
+  // then writes both inventory fields and cost_per_base_unit atomically.
   async function handleSaveWithPurchase(){
     if(barcodeErr) return;
-    setSaving(true); setSaveErr('');
-    try {
-      // Save base item fields via CRUD without closing the modal.
-      await api(`/api/inventory/${item.id}`,{method:'PUT',body:JSON.stringify(form)});
-      await refresh();
-    } catch(e){
-      const raw=e.message||''; let parsed={}; try{parsed=JSON.parse(raw);}catch{}
-      setSaveErr(parsed.error||raw||'Save failed.');
-      setSaving(false);
-      return;
-    }
-    setSaving(false);
-    // Now run purchase preview — this may show PurchaseSyncConfirm or apply directly.
-    await savePurchase();
-  }
-
-  async function savePurchase(){
-    if(!item.id) return;
-    setPurchaseErr(''); setPurchaseWarn('');
-
+    setSaveErr(''); setPurchaseErr(''); setPurchaseWarn('');
     const pu=form.purchase_unit||null;
     const pq=form.pkg_qty?Number(form.pkg_qty):null;
     const pp=form.purchase_price?Number(form.purchase_price):null;
     const cf=form.conversion_factor?Number(form.conversion_factor):null;
-
-    // Step 1: fetch preview to check if a legacy ingredient needs confirmation.
+    // Step 1: preview — no writes yet.
     setSavingPurchase(true);
     let preview=null;
     try {
@@ -700,49 +698,81 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
       if(cf) qs.set('conversion_factor',cf);
       preview=await api(`/api/inventory/${item.id}/purchase-preview?${qs}`);
     } catch(e){
-      const raw=e.message||'';
-      let parsed={}; try{parsed=JSON.parse(raw);}catch{}
-      setPurchaseErr(parsed.error||raw||'Preview failed.');
+      const raw=e.message||''; let parsed={}; try{parsed=JSON.parse(raw);}catch(x){}
+      setPurchaseErr(parsed.error||raw||'Preview failed — nothing was saved. Check values and retry.');
       setSavingPurchase(false);
       return;
     } finally { setSavingPurchase(false); }
-
+    // Step 2: check whether a legacy ingredient needs explicit confirmation.
     const li=preview.linked_ingredient;
-    // Legacy model: ingredient has a non-zero cost or spp>1 set before Phase 2.
     const isLegacy=li&&(Number(li.current_spp)>1||Number(li.current_cost)>0)&&li.proposed_cost_per_unit!==null;
-
     if(isLegacy){
-      // Show confirmation panel — do not apply yet.
-      setPendingSync({pu,pq,pp,cf,preview});
+      // Show confirmation panel — nothing written yet.
+      setPendingSync({pu,pq,pp,cf,preview,baseForm:form});
       return;
     }
-
-    // New-model ingredient or no linked ingredient: apply directly.
-    await applyPurchaseSave(pu,pq,pp,cf,undefined);
+    // Step 3: no legacy ingredient — write base fields + purchase atomically.
+    await applyFullSave(form,pu,pq,pp,cf,undefined);
   }
 
-  async function applyPurchaseSave(pu,pq,pp,cf,syncIngredient){
+  // applyFullSave: writes non-purchase inventory fields then purchase fields.
+  // Called after preview succeeds (or from confirm panel after user decision).
+  // If the CRUD write fails, purchase is never written.
+  // If the purchase write fails, base fields are saved but cost_per_base_unit
+  // is stale — the error message tells the user to retry Save Item.
+  async function applyFullSave(baseForm,pu,pq,pp,cf,syncIngredient){
     setSavingPurchase(true); setPurchaseErr(''); setPurchaseWarn(''); setPendingSync(null);
     try {
+      // Write non-purchase base fields (name, stock, vendor, etc.).
+      await api(`/api/inventory/${item.id}`,{method:'PUT',body:JSON.stringify(baseForm)});
+      // Write purchase fields + compute cost_per_base_unit atomically.
       const body={purchase_unit:pu,pkg_qty:pq,purchase_price:pp,conversion_factor:cf};
       if(syncIngredient!==undefined) body.sync_ingredient=syncIngredient;
       const result=await api(`/api/inventory/${item.id}/purchase`,{method:'PUT',body:JSON.stringify(body)});
       await refresh();
       if(result._unit_mismatch){
-        // Unit mismatch — stay open so user can see the warning.
-        setPurchaseWarn(`Saved — but cost was NOT synced to linked ingredient "${result._unit_mismatch.ingredient_name}": ${result._unit_mismatch.message}`);
-      } else if(result._ingredient_skipped){
-        // User chose Skip — close modal, purchase info is saved.
-        onClose();
+        setPurchaseWarn(`Saved — but cost was NOT synced to "${result._unit_mismatch.ingredient_name}": ${result._unit_mismatch.message}`);
       } else {
-        // Clean save — close modal.
         onClose();
       }
     } catch(e){
-      const raw=e.message||'';
-      let parsed={}; try{parsed=JSON.parse(raw);}catch{}
-      setPurchaseErr(parsed.error||raw||'Save failed.');
+      const raw=e.message||''; let parsed={}; try{parsed=JSON.parse(raw);}catch(x){}
+      setPurchaseErr(parsed.error||raw||'Save failed. Retry Save Item to reapply.');
     } finally { setSavingPurchase(false); }
+  }
+
+  // savePurchase: standalone purchase-only save (the "Save Purchase Info" button
+  // in the Purchase & Costing section). Kept for users who want to update only
+  // purchase fields without touching other inventory fields.
+  async function savePurchase(){
+    if(!item.id) return;
+    setPurchaseErr(''); setPurchaseWarn('');
+    const pu=form.purchase_unit||null;
+    const pq=form.pkg_qty?Number(form.pkg_qty):null;
+    const pp=form.purchase_price?Number(form.purchase_price):null;
+    const cf=form.conversion_factor?Number(form.conversion_factor):null;
+    setSavingPurchase(true);
+    let preview=null;
+    try {
+      const qs=new URLSearchParams();
+      if(pu) qs.set('purchase_unit',pu);
+      if(pq) qs.set('pkg_qty',pq);
+      if(pp) qs.set('purchase_price',pp);
+      if(cf) qs.set('conversion_factor',cf);
+      preview=await api(`/api/inventory/${item.id}/purchase-preview?${qs}`);
+    } catch(e){
+      const raw=e.message||''; let parsed={}; try{parsed=JSON.parse(raw);}catch(x){}
+      setPurchaseErr(parsed.error||raw||'Preview failed — nothing was saved. Check values and retry.');
+      setSavingPurchase(false);
+      return;
+    } finally { setSavingPurchase(false); }
+    const li=preview.linked_ingredient;
+    const isLegacy=li&&(Number(li.current_spp)>1||Number(li.current_cost)>0)&&li.proposed_cost_per_unit!==null;
+    if(isLegacy){
+      setPendingSync({pu,pq,pp,cf,preview,baseForm:null});
+      return;
+    }
+    await applyFullSave(form,pu,pq,pp,cf,undefined);
   }
 
   async function createIngredient(){
@@ -851,8 +881,8 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
           {purchaseWarn&&<div style={{fontSize:12,color:'#fde68a',marginTop:4,lineHeight:1.4}}>⚠️ {purchaseWarn}</div>}
           {pendingSync
             ?<PurchaseSyncConfirm preview={pendingSync.preview}
-                onApply={()=>applyPurchaseSave(pendingSync.pu,pendingSync.pq,pendingSync.pp,pendingSync.cf,true)}
-                onSkip={()=>applyPurchaseSave(pendingSync.pu,pendingSync.pq,pendingSync.pp,pendingSync.cf,false)}
+                onApply={()=>applyFullSave(pendingSync.baseForm||form,pendingSync.pu,pendingSync.pq,pendingSync.pp,pendingSync.cf,true)}
+                onSkip={()=>applyFullSave(pendingSync.baseForm||form,pendingSync.pu,pendingSync.pq,pendingSync.pp,pendingSync.cf,false)}
                 onCancel={()=>setPendingSync(null)}
                 saving={savingPurchase}/>
             :<button onClick={savePurchase} disabled={savingPurchase} style={{marginTop:8,padding:'7px 14px',fontSize:13}}>{savingPurchase?'Previewing…':'Save Purchase Info'}</button>
