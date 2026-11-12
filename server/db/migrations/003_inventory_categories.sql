@@ -12,6 +12,11 @@ CREATE TABLE IF NOT EXISTS inventory_categories (
   CONSTRAINT inventory_categories_name_key UNIQUE (name)
 );
 
+-- Transfer ownership to the application role so it has full access.
+-- This is required when the migration is run as the postgres superuser.
+ALTER TABLE inventory_categories OWNER TO birria;
+ALTER SEQUENCE inventory_categories_id_seq OWNER TO birria;
+
 -- Seed the categories currently in use in production plus the legacy hardcoded
 -- defaults. ON CONFLICT DO NOTHING means re-running is safe and user-defined
 -- categories are never overwritten.
