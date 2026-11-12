@@ -596,6 +596,10 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
   const [savingPurchase,setSavingPurchase]=useState(false);
   const [linkedIng,setLinkedIng]=useState(null);
   const [creatingIng,setCreatingIng]=useState(false);
+  const [linkingIng,setLinkingIng]=useState(false);
+  const [unlinkingIng,setUnlinkingIng]=useState(false);
+  const [showLinkPicker,setShowLinkPicker]=useState(false);
+  const [linkErr,setLinkErr]=useState('');
 
   // Load linked ingredient on open.
   useEffect(()=>{
@@ -663,16 +667,47 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
 
   async function createIngredient(){
     if(!item.id) return;
-    setCreatingIng(true);
+    setCreatingIng(true); setLinkErr('');
     try {
       const ing=await api(`/api/inventory/${item.id}/create-ingredient`,{method:'POST',body:JSON.stringify({})});
       setLinkedIng(ing);
+      setShowLinkPicker(false);
       await refresh();
     } catch(e){
       const raw=e.message||'';
       let parsed={}; try{parsed=JSON.parse(raw);}catch{}
-      alert(parsed.error||'Failed to create ingredient.');
+      setLinkErr(parsed.error||'Failed to create ingredient.');
     } finally { setCreatingIng(false); }
+  }
+
+  async function linkIngredient(ingId){
+    if(!item.id||!ingId) return;
+    setLinkingIng(true); setLinkErr('');
+    try {
+      const ing=await api(`/api/inventory/${item.id}/link-ingredient`,{method:'POST',body:JSON.stringify({ingredient_id:ingId})});
+      setLinkedIng(ing);
+      setShowLinkPicker(false);
+      await refresh();
+    } catch(e){
+      const raw=e.message||'';
+      let parsed={}; try{parsed=JSON.parse(raw);}catch{}
+      setLinkErr(parsed.error||'Failed to link ingredient.');
+    } finally { setLinkingIng(false); }
+  }
+
+  async function unlinkIngredient(){
+    if(!item.id||!linkedIng) return;
+    if(!confirm(`Unlink "${linkedIng.name}" from this inventory item? The ingredient will be preserved.`)) return;
+    setUnlinkingIng(true); setLinkErr('');
+    try {
+      await api(`/api/inventory/${item.id}/unlink-ingredient`,{method:'POST',body:JSON.stringify({})});
+      setLinkedIng(null);
+      await refresh();
+    } catch(e){
+      const raw=e.message||'';
+      let parsed={}; try{parsed=JSON.parse(raw);}catch{}
+      setLinkErr(parsed.error||'Failed to unlink.');
+    } finally { setUnlinkingIng(false); }
   }
 
   const catOpts = categories.length ? categories : INV_CATEGORIES;
@@ -716,7 +751,7 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
           <div style={{fontWeight:700,fontSize:13,marginBottom:10,color:'#fb923c'}}>Purchase &amp; Costing</div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
             <label><div className="muted">Purchase Unit</div><Sel value={form.purchase_unit||''} onChange={v=>set('purchase_unit',v)} options={[''].concat(UNIT_OPTIONS)}/></label>
-            <label><div className="muted">Pkg Qty <span style={{fontSize:11,opacity:.6}}>(in base unit)</span></div><input type="number" step="0.001" min="0" value={form.pkg_qty} onChange={e=>set('pkg_qty',e.target.value)} placeholder="e.g. 24"/></label>
+            <label><div className="muted">Pkg Qty <span style={{fontSize:11,opacity:.6}}>(total base units per package)</span></div><input type="number" step="0.001" min="0" value={form.pkg_qty} onChange={e=>set('pkg_qty',e.target.value)} placeholder="e.g. 480"/></label>
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginTop:8}}>
             <label><div className="muted">Purchase Price ($)</div><input type="number" step="0.01" min="0" value={form.purchase_price} onChange={e=>set('purchase_price',e.target.value)} placeholder="e.g. 42.00"/></label>
@@ -731,16 +766,52 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
         <div style={{borderTop:'1px solid rgba(255,255,255,.08)',margin:'4px 0 12px',paddingTop:12}}>
           <div style={{fontWeight:700,fontSize:13,marginBottom:8,color:'#fb923c'}}>Ingredient Link</div>
           {linkedIng
-            ?<div className="muted" style={{fontSize:13}}>Linked to: <strong style={{color:'white'}}>{linkedIng.name}</strong> <span style={{fontSize:11}}>(id {linkedIng.id})</span></div>
-            :<div style={{display:'flex',alignItems:'center',gap:10}}>
-              <span className="muted" style={{fontSize:13}}>No ingredient linked.</span>
-              <button onClick={createIngredient} disabled={creatingIng} style={{padding:'5px 12px',fontSize:12}}>{creatingIng?'Creating…':'Create Ingredient'}</button>
-            </div>
+            ?<>
+              <div className="muted" style={{fontSize:13,marginBottom:8}}>Linked to: <strong style={{color:'white'}}>{linkedIng.name}</strong> <span style={{fontSize:11}}>(id {linkedIng.id})</span></div>
+              <button onClick={unlinkIngredient} disabled={unlinkingIng} style={{padding:'5px 12px',fontSize:12,background:'rgba(239,68,68,.15)',color:'#fca5a5',border:'1px solid rgba(239,68,68,.3)'}}>{unlinkingIng?'Unlinking…':'Unlink'}</button>
+            </>
+            :<>
+              {!showLinkPicker&&<div style={{display:'flex',alignItems:'center',gap:10}}>
+                <span className="muted" style={{fontSize:13}}>No ingredient linked.</span>
+                <button onClick={createIngredient} disabled={creatingIng} style={{padding:'5px 12px',fontSize:12}}>{creatingIng?'Creating…':'Create Ingredient'}</button>
+                <button onClick={()=>{setShowLinkPicker(true);setLinkErr('');}} style={{padding:'5px 12px',fontSize:12}}>Link Existing</button>
+              </div>}
+              {showLinkPicker&&<LinkIngredientPicker inventory={item} api={api} onLink={linkIngredient} onCancel={()=>setShowLinkPicker(false)} loading={linkingIng}/>}
+            </>
           }
+          {linkErr&&<div style={{fontSize:12,color:'#fca5a5',marginTop:6}}>{linkErr}</div>}
         </div>
       </>}
     </div>
   </div></div>;
+}
+
+// Picker shown inside InventoryModal to link an existing unlinked ingredient.
+function LinkIngredientPicker({inventory,api,onLink,onCancel,loading}){
+  const [ingredients,setIngredients]=useState([]);
+  const [q,setQ]=useState('');
+  useEffect(()=>{
+    if(!api) return;
+    api('/api/ingredients').then(all=>{
+      // Only show ingredients that are not already linked to a different inventory item.
+      setIngredients(all.filter(i=>!i.inventory_item_id||String(i.inventory_item_id)===String(inventory.id)));
+    }).catch(()=>{});
+  },[]);
+  const lq=q.toLowerCase();
+  const filtered=lq?ingredients.filter(i=>i.name.toLowerCase().includes(lq)||i.unit.toLowerCase().includes(lq)):ingredients;
+  return <div style={{marginTop:8,border:'1px solid rgba(255,255,255,.12)',borderRadius:10,padding:10}}>
+    <div style={{display:'flex',gap:8,marginBottom:8,alignItems:'center'}}>
+      <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search ingredients…" style={{flex:1,background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:8,padding:'6px 10px',fontSize:12}}/>
+      <button onClick={onCancel} style={{padding:'5px 10px',fontSize:12}}>Cancel</button>
+    </div>
+    {filtered.length===0&&<div className="muted" style={{fontSize:12}}>No unlinked ingredients found.</div>}
+    <div style={{maxHeight:180,overflowY:'auto',display:'flex',flexDirection:'column',gap:4}}>
+      {filtered.map(i=><div key={i.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'5px 8px',borderRadius:6,background:'rgba(255,255,255,.04)'}}>
+        <span style={{fontSize:13}}>{i.name} <span className="muted" style={{fontSize:11}}>({i.unit})</span></span>
+        <button onClick={()=>onLink(i.id)} disabled={loading} style={{padding:'3px 10px',fontSize:11}}>{loading?'Linking…':'Link'}</button>
+      </div>)}
+    </div>
+  </div>;
 }
 
 // ── Ingredients Page ────────────────────────────────────────────────────────────
