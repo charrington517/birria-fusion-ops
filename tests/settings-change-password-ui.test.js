@@ -11,15 +11,9 @@ const assert = require('assert');
 const http   = require('http');
 const { Pool } = require('pg');
 
+// Load test DB config from .env.test -- never derives credentials from production .env.
+require('./helpers/test-db');
 const TEST_DB_URL = process.env.TEST_DATABASE_URL;
-if (!TEST_DB_URL) {
-  console.error('TEST_DATABASE_URL env var required');
-  process.exit(1);
-}
-
-process.env.DATABASE_URL = TEST_DB_URL;
-process.env.JWT_SECRET   = require('crypto').randomBytes(48).toString('hex');
-process.env.NODE_ENV     = 'test';
 
 const express    = require('express');
 const authRoutes = require('../server/routes/auth');

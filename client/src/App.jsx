@@ -592,6 +592,8 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
   const isNew=!item.id;
   const [form,setForm]=useState({id:item.id,name:item.name||'',category:item.category||categories[0]||'Food',unit:item.unit||'each',current_stock:item.current_stock??'',min_stock:item.min_stock??'',max_stock:item.max_stock??'',cost:item.cost||'',supplier:item.supplier||'',supplier_id:item.supplier_id||null,forecast_per_event:item.forecast_per_event||'',barcode:item.barcode||'',purchase_unit:item.purchase_unit||'',pkg_qty:item.pkg_qty||'',purchase_price:item.purchase_price||'',conversion_factor:item.conversion_factor||''});
   const [barcodeErr,setBarcodeErr]=useState('');
+  const [saveErr,setSaveErr]=useState('');
+  const [saving,setSaving]=useState(false);
   const [purchaseErr,setPurchaseErr]=useState('');
   const [purchaseWarn,setPurchaseWarn]=useState('');
   const [savingPurchase,setSavingPurchase]=useState(false);
@@ -643,21 +645,42 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
   }
   function handleBarcode(v){ set('barcode',v); setBarcodeErr(validateBarcode(v)); }
 
+  // handleSave: new items without purchase fields, and existing items without
+  // purchase fields. Routes to the unified transactional endpoint.
   async function handleSave(){
     if(barcodeErr) return;
-    await onSave(form);
+    setSaving(true); setSaveErr('');
+    const hasPurchase=!!(form.purchase_price||form.pkg_qty||form.purchase_unit);
+    try {
+      if(isNew && hasPurchase){
+        // New item with purchase fields: single transactional POST creates the
+        // inventory record and computes cost_per_base_unit in one DB transaction.
+        const result=await api('/api/inventory/save',{method:'POST',body:JSON.stringify(form)});
+        if(!result.inventory?.id) throw new Error('Save succeeded but no id returned.');
+        await refresh();
+        onClose();
+      } else {
+        await onSave(form);
+      }
+    } catch(e){
+      const raw=e.message||''; let parsed={}; try{parsed=JSON.parse(raw);}catch(x){}
+      setSaveErr(parsed.error||raw||'Save failed.');
+    } finally { setSaving(false); }
   }
 
-  async function savePurchase(){
-    if(!item.id) return;
-    setPurchaseErr(''); setPurchaseWarn('');
-
+  // handleSaveWithPurchase: existing items with purchase fields.
+  // Preview-first: fetches cost preview BEFORE writing anything so a preview
+  // failure leaves the database completely unchanged. The unified save endpoint
+  // then writes all fields (base + purchase + optional ingredient sync) in one
+  // PostgreSQL transaction — no partial writes possible.
+  async function handleSaveWithPurchase(){
+    if(barcodeErr) return;
+    setSaveErr(''); setPurchaseErr(''); setPurchaseWarn('');
     const pu=form.purchase_unit||null;
     const pq=form.pkg_qty?Number(form.pkg_qty):null;
     const pp=form.purchase_price?Number(form.purchase_price):null;
     const cf=form.conversion_factor?Number(form.conversion_factor):null;
-
-    // Step 1: fetch preview to check if a legacy ingredient needs confirmation.
+    // Step 1: preview — no writes.
     setSavingPurchase(true);
     let preview=null;
     try {
@@ -668,46 +691,77 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
       if(cf) qs.set('conversion_factor',cf);
       preview=await api(`/api/inventory/${item.id}/purchase-preview?${qs}`);
     } catch(e){
-      const raw=e.message||'';
-      let parsed={}; try{parsed=JSON.parse(raw);}catch{}
-      setPurchaseErr(parsed.error||raw||'Preview failed.');
+      const raw=e.message||''; let parsed={}; try{parsed=JSON.parse(raw);}catch(x){}
+      setPurchaseErr(parsed.error||raw||'Preview failed — nothing was saved. Check values and retry.');
       setSavingPurchase(false);
       return;
     } finally { setSavingPurchase(false); }
-
+    // Step 2: check whether a legacy ingredient needs explicit confirmation.
     const li=preview.linked_ingredient;
-    // Legacy model: ingredient has a non-zero cost or spp>1 set before Phase 2.
     const isLegacy=li&&(Number(li.current_spp)>1||Number(li.current_cost)>0)&&li.proposed_cost_per_unit!==null;
-
     if(isLegacy){
-      // Show confirmation panel — do not apply yet.
-      setPendingSync({pu,pq,pp,cf,preview});
+      // Show confirmation panel — nothing written yet.
+      setPendingSync({pu,pq,pp,cf,preview,baseForm:form});
       return;
     }
-
-    // New-model ingredient or no linked ingredient: apply directly.
-    await applyPurchaseSave(pu,pq,pp,cf,undefined);
+    // Step 3: no legacy ingredient — write everything in one transaction.
+    await applyFullSave(form,pu,pq,pp,cf,undefined);
   }
 
-  async function applyPurchaseSave(pu,pq,pp,cf,syncIngredient){
+  // applyFullSave: writes base fields + purchase fields + optional ingredient
+  // sync in a single PostgreSQL transaction via POST /inventory/save.
+  // Called after preview succeeds (or from confirm panel after user decision).
+  // Any failure rolls back the entire transaction — no partial writes.
+  async function applyFullSave(baseForm,pu,pq,pp,cf,syncIngredient){
     setSavingPurchase(true); setPurchaseErr(''); setPurchaseWarn(''); setPendingSync(null);
     try {
-      const body={purchase_unit:pu,pkg_qty:pq,purchase_price:pp,conversion_factor:cf};
+      const body={...baseForm,id:item.id,purchase_unit:pu,pkg_qty:pq,purchase_price:pp,conversion_factor:cf};
       if(syncIngredient!==undefined) body.sync_ingredient=syncIngredient;
-      const result=await api(`/api/inventory/${item.id}/purchase`,{method:'PUT',body:JSON.stringify(body)});
+      const result=await api('/api/inventory/save',{method:'POST',body:JSON.stringify(body)});
       await refresh();
       if(result._unit_mismatch){
-        setPurchaseWarn(`Saved — but cost was NOT synced to linked ingredient "${result._unit_mismatch.ingredient_name}": ${result._unit_mismatch.message}`);
-      } else if(result._ingredient_skipped){
-        setPurchaseWarn('Purchase info saved. Ingredient cost was not changed.');
+        setPurchaseWarn(`Saved — but cost was NOT synced to "${result._unit_mismatch.ingredient_name}": ${result._unit_mismatch.message}`);
       } else {
-        setPurchaseErr('Saved.');
+        onClose();
       }
     } catch(e){
-      const raw=e.message||'';
-      let parsed={}; try{parsed=JSON.parse(raw);}catch{}
-      setPurchaseErr(parsed.error||raw||'Save failed.');
+      const raw=e.message||''; let parsed={}; try{parsed=JSON.parse(raw);}catch(x){}
+      setPurchaseErr(parsed.error||raw||'Save failed — nothing was written. Retry Save Item.');
     } finally { setSavingPurchase(false); }
+  }
+
+  // savePurchase: standalone purchase-only save (the "Save Purchase Info" button
+  // in the Purchase & Costing section). Kept for users who want to update only
+  // purchase fields without touching other inventory fields.
+  async function savePurchase(){
+    if(!item.id) return;
+    setPurchaseErr(''); setPurchaseWarn('');
+    const pu=form.purchase_unit||null;
+    const pq=form.pkg_qty?Number(form.pkg_qty):null;
+    const pp=form.purchase_price?Number(form.purchase_price):null;
+    const cf=form.conversion_factor?Number(form.conversion_factor):null;
+    setSavingPurchase(true);
+    let preview=null;
+    try {
+      const qs=new URLSearchParams();
+      if(pu) qs.set('purchase_unit',pu);
+      if(pq) qs.set('pkg_qty',pq);
+      if(pp) qs.set('purchase_price',pp);
+      if(cf) qs.set('conversion_factor',cf);
+      preview=await api(`/api/inventory/${item.id}/purchase-preview?${qs}`);
+    } catch(e){
+      const raw=e.message||''; let parsed={}; try{parsed=JSON.parse(raw);}catch(x){}
+      setPurchaseErr(parsed.error||raw||'Preview failed — nothing was saved. Check values and retry.');
+      setSavingPurchase(false);
+      return;
+    } finally { setSavingPurchase(false); }
+    const li=preview.linked_ingredient;
+    const isLegacy=li&&(Number(li.current_spp)>1||Number(li.current_cost)>0)&&li.proposed_cost_per_unit!==null;
+    if(isLegacy){
+      setPendingSync({pu,pq,pp,cf,preview,baseForm:null});
+      return;
+    }
+    await applyFullSave(form,pu,pq,pp,cf,undefined);
   }
 
   async function createIngredient(){
@@ -792,7 +846,12 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
           {suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
       </label>
-      <button className="primary" onClick={handleSave}>Save Item</button>
+      {saveErr&&<div style={{fontSize:12,color:'#fca5a5',marginTop:4}}>{saveErr}</div>}
+      <button className="primary"
+        onClick={item.id&&(form.purchase_price||form.pkg_qty||form.purchase_unit)?handleSaveWithPurchase:handleSave}
+        disabled={saving||savingPurchase}>
+        {saving?'Saving…':savingPurchase?'Checking cost…':'Save Item'}
+      </button>
 
       {!isNew&&<>
         <div style={{borderTop:'1px solid rgba(255,255,255,.08)',margin:'16px 0 12px',paddingTop:12}}>
@@ -811,8 +870,8 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
           {purchaseWarn&&<div style={{fontSize:12,color:'#fde68a',marginTop:4,lineHeight:1.4}}>⚠️ {purchaseWarn}</div>}
           {pendingSync
             ?<PurchaseSyncConfirm preview={pendingSync.preview}
-                onApply={()=>applyPurchaseSave(pendingSync.pu,pendingSync.pq,pendingSync.pp,pendingSync.cf,true)}
-                onSkip={()=>applyPurchaseSave(pendingSync.pu,pendingSync.pq,pendingSync.pp,pendingSync.cf,false)}
+                onApply={()=>applyFullSave(pendingSync.baseForm||form,pendingSync.pu,pendingSync.pq,pendingSync.pp,pendingSync.cf,true)}
+                onSkip={()=>applyFullSave(pendingSync.baseForm||form,pendingSync.pu,pendingSync.pq,pendingSync.pp,pendingSync.cf,false)}
                 onCancel={()=>setPendingSync(null)}
                 saving={savingPurchase}/>
             :<button onClick={savePurchase} disabled={savingPurchase} style={{marginTop:8,padding:'7px 14px',fontSize:13}}>{savingPurchase?'Previewing…':'Save Purchase Info'}</button>

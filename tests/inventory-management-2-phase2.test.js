@@ -16,22 +16,9 @@ const fs     = require('fs');
 const path   = require('path');
 const { Pool } = require('pg');
 
-// ── Safety guard ──────────────────────────────────────────────────────────────
-
+// Load test DB config from .env.test — never derives credentials from production .env.
+require('./helpers/test-db');
 const TEST_DB_URL = process.env.TEST_DATABASE_URL;
-if (!TEST_DB_URL) { console.error('TEST_DATABASE_URL env var required'); process.exit(1); }
-
-const _testDbName = TEST_DB_URL.match(/\/([^/?]+)(\?|$)/)?.[1] || '';
-if (_testDbName === 'birria_fusion_ops') {
-  console.error('REFUSED: TEST_DATABASE_URL points to the production database. Use birria_fusion_test.');
-  process.exit(1);
-}
-
-// Set DATABASE_URL before requiring any server modules so the app pool connects
-// to the test database, not production.
-process.env.DATABASE_URL = TEST_DB_URL;
-process.env.JWT_SECRET   = require('crypto').randomBytes(48).toString('hex');
-process.env.NODE_ENV     = 'test';
 
 // ── Migration runner (isolated pool, test DB only) ────────────────────────────
 
@@ -127,6 +114,13 @@ async function run() {
 
   const createdItems = [];
   const createdIngredients = [];
+
+  // Snapshot inventory ids that already have purchase_price set before this
+  // suite runs. The legacy-data test excludes these so it is independent of
+  // leftover state from prior test runs.
+  const preRunPurchasedIds = new Set(
+    (await pool.query('SELECT id FROM inventory WHERE purchase_price IS NOT NULL')).rows.map(r => r.id)
+  );
 
   // ── Migration safety checks ───────────────────────────────────────────────
 
@@ -678,7 +672,11 @@ async function run() {
   await test('Existing inventory items have null purchase fields (additive migration)', async () => {
     const r = await req(server, 'GET', '/api/inventory', null, token);
     assert.strictEqual(r.status, 200);
-    const preExisting = r.body.filter(i => !createdItems.includes(i.id));
+    // Exclude items created by this suite and items that already had purchase
+    // data before this suite started (leftover from prior test runs).
+    const preExisting = r.body.filter(
+      i => !createdItems.includes(i.id) && !preRunPurchasedIds.has(i.id)
+    );
     const withPurchase = preExisting.filter(i => i.purchase_price != null);
     assert.strictEqual(withPurchase.length, 0, 'Pre-existing items should have null purchase_price');
   });
