@@ -8,6 +8,7 @@ const { previewConsumption, consumeInventory, consumeInventoryWithClient } = req
 const { withTransaction } = require('../db/pool');
 const { calculateEventProfit, getEventProfitSummary } = require('../services/profitability');
 const { query } = require('../db/pool');
+const { computeCostPerBaseUnit, costPerIngredientUnit, listConversions } = require('../services/units');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -204,6 +205,297 @@ router.get('/inventory/barcode/:barcode', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// Purchase preview — computes proposed cost change WITHOUT applying it.
+// Returns current ingredient state and proposed new cost so the UI can
+// show a confirmation dialog before the user commits.
+router.get('/inventory/:id/purchase-preview', async (req, res, next) => {
+  try {
+    const { purchase_unit, pkg_qty, purchase_price, conversion_factor } = req.query;
+    const id = req.params.id;
+
+    const invRes = await query('SELECT * FROM inventory WHERE id=$1', [id]);
+    if (!invRes.rows.length) return res.status(404).json({ error: 'Inventory item not found' });
+    const inv = invRes.rows[0];
+
+    const pu = purchase_unit  || inv.purchase_unit;
+    const pq = pkg_qty        != null ? Number(pkg_qty)        : inv.pkg_qty;
+    const pp = purchase_price != null ? Number(purchase_price) : inv.purchase_price;
+    const cf = conversion_factor != null ? Number(conversion_factor) : inv.conversion_factor;
+
+    let cpbu = null;
+    if (pp && pq) {
+      try {
+        cpbu = await computeCostPerBaseUnit(pp, pq, pu, inv.unit, cf);
+      } catch (convErr) {
+        return res.status(422).json({ error: convErr.message });
+      }
+    }
+
+    // Find linked ingredient.
+    const ingRes = await query(
+      'SELECT id, name, unit, cost, servings_per_purchase FROM ingredients WHERE inventory_item_id=$1 LIMIT 1',
+      [id]
+    );
+
+    if (!ingRes.rows.length) {
+      return res.json({ cost_per_base_unit: cpbu, linked_ingredient: null });
+    }
+
+    const ing = ingRes.rows[0];
+    const currentCostPerUnit = Number(ing.cost) / (Number(ing.servings_per_purchase) || 1);
+
+    let proposedCostPerUnit = null;
+    let unitMismatch = null;
+    if (cpbu !== null) {
+      try {
+        proposedCostPerUnit = await costPerIngredientUnit(cpbu, inv.unit, ing.unit, cf);
+      } catch (_) {
+        unitMismatch = { inventory_unit: inv.unit, ingredient_unit: ing.unit };
+      }
+    }
+
+    res.json({
+      cost_per_base_unit: cpbu,
+      linked_ingredient: {
+        id: ing.id,
+        name: ing.name,
+        unit: ing.unit,
+        current_cost: Number(ing.cost),
+        current_spp: Number(ing.servings_per_purchase),
+        current_cost_per_unit: Number(currentCostPerUnit.toFixed(6)),
+        proposed_cost_per_unit: proposedCostPerUnit !== null ? Number(proposedCostPerUnit.toFixed(6)) : null,
+        unit_mismatch: unitMismatch
+      }
+    });
+  } catch (err) { next(err); }
+});
+
+// Purchase unit update — updates purchase fields.
+// sync_ingredient: true  → propagate computed cost to linked ingredient (requires confirmation).
+// sync_ingredient: false → save inventory fields only; preserve existing ingredient cost/spp.
+// Newly created ingredients (spp=1, cost=0) are synced automatically when sync_ingredient
+// is omitted, for backward compatibility with create-ingredient flow.
+router.put('/inventory/:id/purchase', async (req, res, next) => {
+  try {
+    const { purchase_unit, pkg_qty, purchase_price, conversion_factor, sync_ingredient } = req.body;
+    const id = req.params.id;
+
+    const invRes = await query('SELECT * FROM inventory WHERE id=$1', [id]);
+    if (!invRes.rows.length) return res.status(404).json({ error: 'Inventory item not found' });
+    const inv = invRes.rows[0];
+
+    const pu = purchase_unit  ?? inv.purchase_unit;
+    const pq = pkg_qty        ?? inv.pkg_qty;
+    const pp = purchase_price ?? inv.purchase_price;
+    const cf = conversion_factor !== undefined ? conversion_factor : inv.conversion_factor;
+
+    let cpbu = null;
+    if (pp && pq) {
+      try {
+        cpbu = await computeCostPerBaseUnit(pp, pq, pu, inv.unit, cf);
+      } catch (convErr) {
+        return res.status(422).json({ error: convErr.message });
+      }
+    }
+
+    const updated = await withTransaction(async (client) => {
+      const invUpd = await client.query(
+        `UPDATE inventory
+         SET purchase_unit=$1, pkg_qty=$2, purchase_price=$3,
+             cost_per_base_unit=$4, conversion_factor=$5
+         WHERE id=$6 RETURNING *`,
+        [pu, pq, pp, cpbu, cf, id]
+      );
+
+      let unitMismatch = null;
+      let ingredientSkipped = false;
+
+      if (cpbu !== null) {
+        const ingRes = await client.query(
+          'SELECT id, unit, name, cost, servings_per_purchase FROM ingredients WHERE inventory_item_id=$1 LIMIT 1',
+          [id]
+        );
+        if (ingRes.rows.length) {
+          const ing = ingRes.rows[0];
+
+          // Determine whether to propagate.
+          // sync_ingredient=true  → always propagate (user confirmed).
+          // sync_ingredient=false → never propagate (user declined).
+          // sync_ingredient omitted → auto-propagate only for new-model ingredients
+          //   (spp=1 and cost=0), which were created by create-ingredient and have
+          //   never had a legacy cost set.
+          const isNewModel = Number(ing.servings_per_purchase) === 1 && Number(ing.cost) === 0;
+          const shouldSync = sync_ingredient === true
+            ? true
+            : sync_ingredient === false
+              ? false
+              : isNewModel; // omitted: auto only for new-model
+
+          if (shouldSync) {
+            let ingCost = cpbu;
+            try {
+              ingCost = await costPerIngredientUnit(cpbu, inv.unit, ing.unit, cf);
+            } catch (_) {
+              ingCost = null;
+            }
+            if (ingCost !== null) {
+              await client.query(
+                'UPDATE ingredients SET cost=$1, servings_per_purchase=1 WHERE id=$2',
+                [Number(ingCost.toFixed(6)), ing.id]
+              );
+            } else {
+              unitMismatch = {
+                inventory_unit: inv.unit,
+                ingredient_unit: ing.unit,
+                ingredient_name: ing.name,
+                message: `Cannot convert "${inv.unit}" to "${ing.unit}" — ingredient cost was not updated. ` +
+                         `Edit the ingredient manually or add a conversion_factor.`
+              };
+            }
+          } else {
+            // User declined sync or ingredient has legacy cost model.
+            ingredientSkipped = true;
+          }
+        }
+      }
+
+      return { inv: invUpd.rows[0], unitMismatch, ingredientSkipped };
+    });
+
+    const response = updated.inv;
+    if (updated.unitMismatch)     response._unit_mismatch      = updated.unitMismatch;
+    if (updated.ingredientSkipped) response._ingredient_skipped = true;
+    res.json(response);
+  } catch (err) { next(err); }
+});
+
+// Ingredient link — create a new ingredient from an inventory item.
+// Prevents duplicate links (one inventory item → one ingredient).
+router.post('/inventory/:id/create-ingredient', async (req, res, next) => {
+  try {
+    const invId = req.params.id;
+    const invRes = await query('SELECT * FROM inventory WHERE id=$1', [invId]);
+    if (!invRes.rows.length) return res.status(404).json({ error: 'Inventory item not found' });
+    const inv = invRes.rows[0];
+
+    // Check for existing link.
+    const existing = await query(
+      'SELECT id, name FROM ingredients WHERE inventory_item_id=$1 LIMIT 1', [invId]
+    );
+    if (existing.rows.length) {
+      return res.status(409).json({
+        error: 'This inventory item is already linked to an ingredient',
+        existing_ingredient_id: existing.rows[0].id,
+        existing_ingredient_name: existing.rows[0].name
+      });
+    }
+
+    const { name, category, unit, notes } = req.body;
+    const ingName = (name || inv.name).trim();
+    const ingUnit = unit || inv.unit || 'each';
+    const cost    = inv.cost_per_base_unit ?? inv.cost ?? 0;
+
+    const result = await query(
+      `INSERT INTO ingredients (name, category, unit, cost, servings_per_purchase, supplier, notes, inventory_item_id)
+       VALUES ($1, $2, $3, $4, 1, $5, $6, $7) RETURNING *`,
+      [ingName, category || inv.category || '', ingUnit, cost, inv.supplier || '', notes || '', invId]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) { next(err); }
+});
+
+// Link an existing ingredient to an inventory item.
+// Rejects if the inventory item already has a different ingredient linked.
+// Rejects if the ingredient is already linked to a different inventory item.
+// Returns _unit_mismatch warning when units are incompatible (cost won't auto-sync).
+router.post('/inventory/:id/link-ingredient', async (req, res, next) => {
+  try {
+    const invId = Number(req.params.id);
+    const { ingredient_id } = req.body;
+    if (!ingredient_id) return res.status(400).json({ error: 'ingredient_id is required' });
+
+    const invRes = await query('SELECT id, unit FROM inventory WHERE id=$1', [invId]);
+    if (!invRes.rows.length) return res.status(404).json({ error: 'Inventory item not found' });
+    const invUnit = invRes.rows[0].unit;
+
+    const ingRes = await query('SELECT * FROM ingredients WHERE id=$1', [ingredient_id]);
+    if (!ingRes.rows.length) return res.status(404).json({ error: 'Ingredient not found' });
+    const ing = ingRes.rows[0];
+
+    // Check if this inventory item is already linked to a DIFFERENT ingredient.
+    const existingForInv = await query(
+      'SELECT id, name FROM ingredients WHERE inventory_item_id=$1 AND id!=$2 LIMIT 1',
+      [invId, ingredient_id]
+    );
+    if (existingForInv.rows.length) {
+      return res.status(409).json({
+        error: 'This inventory item is already linked to another ingredient',
+        existing_ingredient_id: existingForInv.rows[0].id,
+        existing_ingredient_name: existingForInv.rows[0].name
+      });
+    }
+
+    // Check if this ingredient is already linked to a DIFFERENT inventory item.
+    if (ing.inventory_item_id && Number(ing.inventory_item_id) !== invId) {
+      return res.status(409).json({
+        error: 'This ingredient is already linked to a different inventory item',
+        current_inventory_item_id: ing.inventory_item_id
+      });
+    }
+
+    const result = await query(
+      'UPDATE ingredients SET inventory_item_id=$1 WHERE id=$2 RETURNING *',
+      [invId, ingredient_id]
+    );
+    const linked = result.rows[0];
+
+    // Warn if inventory base unit cannot be converted to ingredient usage unit.
+    let unitMismatch = null;
+    const bu = (invUnit    || '').trim().toLowerCase();
+    const iu = (ing.unit   || '').trim().toLowerCase();
+    if (bu && iu && bu !== iu) {
+      try { await costPerIngredientUnit(1, invUnit, ing.unit, null); }
+      catch (_) {
+        unitMismatch = {
+          inventory_unit: invUnit,
+          ingredient_unit: ing.unit,
+          message: `Inventory unit "${invUnit}" cannot be automatically converted to ` +
+                   `ingredient unit "${ing.unit}". Purchase cost will not sync until ` +
+                   `a conversion_factor is set or the ingredient unit is updated.`
+        };
+      }
+    }
+
+    const response = { ...linked };
+    if (unitMismatch) response._unit_mismatch = unitMismatch;
+    res.json(response);
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'That inventory item is already linked to another ingredient' });
+    }
+    next(err);
+  }
+});
+
+// Unlink an ingredient from its inventory item.
+// Preserves all recipe and compound relationships — only clears inventory_item_id.
+router.post('/inventory/:id/unlink-ingredient', async (req, res, next) => {
+  try {
+    const invId = Number(req.params.id);
+    const result = await query(
+      'UPDATE ingredients SET inventory_item_id=NULL WHERE inventory_item_id=$1 RETURNING id, name',
+      [invId]
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'No ingredient linked to this inventory item' });
+    res.json({ ok: true, unlinked: result.rows[0] });
+  } catch (err) { next(err); }
+});
+
+// Unit conversions list.
+router.get('/unit-conversions', async (req, res, next) => {
+  try { res.json(await listConversions()); } catch (err) { next(err); }
+});
+
 Object.keys(crud.tableMap).forEach(collection => {
   router.get(`/${collection}`, async (req, res, next) => {
     try { res.json(await crud.list(collection)); } catch (err) { next(err); }
@@ -220,6 +512,10 @@ Object.keys(crud.tableMap).forEach(collection => {
           error: 'Barcode already assigned to another item',
           conflict_item: name || null
         });
+      }
+      // Duplicate inventory_item_id link on ingredients.
+      if (err.code === '23505' && collection === 'ingredients') {
+        return res.status(409).json({ error: 'That inventory item is already linked to another ingredient' });
       }
       next(err);
     }
@@ -240,6 +536,9 @@ Object.keys(crud.tableMap).forEach(collection => {
           error: 'Barcode already assigned to another item',
           conflict_item: name || null
         });
+      }
+      if (err.code === '23505' && collection === 'ingredients') {
+        return res.status(409).json({ error: 'That inventory item is already linked to another ingredient' });
       }
       next(err);
     }
