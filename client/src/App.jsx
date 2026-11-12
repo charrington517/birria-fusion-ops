@@ -593,6 +593,7 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
   const [form,setForm]=useState({id:item.id,name:item.name||'',category:item.category||categories[0]||'Food',unit:item.unit||'each',current_stock:item.current_stock??'',min_stock:item.min_stock??'',max_stock:item.max_stock??'',cost:item.cost||'',supplier:item.supplier||'',supplier_id:item.supplier_id||null,forecast_per_event:item.forecast_per_event||'',barcode:item.barcode||'',purchase_unit:item.purchase_unit||'',pkg_qty:item.pkg_qty||'',purchase_price:item.purchase_price||'',conversion_factor:item.conversion_factor||''});
   const [barcodeErr,setBarcodeErr]=useState('');
   const [purchaseErr,setPurchaseErr]=useState('');
+  const [purchaseWarn,setPurchaseWarn]=useState('');
   const [savingPurchase,setSavingPurchase]=useState(false);
   const [linkedIng,setLinkedIng]=useState(null);
   const [creatingIng,setCreatingIng]=useState(false);
@@ -648,16 +649,20 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
 
   async function savePurchase(){
     if(!item.id) return;
-    setSavingPurchase(true); setPurchaseErr('');
+    setSavingPurchase(true); setPurchaseErr(''); setPurchaseWarn('');
     try {
-      await api(`/api/inventory/${item.id}/purchase`,{method:'PUT',body:JSON.stringify({
+      const result=await api(`/api/inventory/${item.id}/purchase`,{method:'PUT',body:JSON.stringify({
         purchase_unit:form.purchase_unit||null,
         pkg_qty:form.pkg_qty?Number(form.pkg_qty):null,
         purchase_price:form.purchase_price?Number(form.purchase_price):null,
         conversion_factor:form.conversion_factor?Number(form.conversion_factor):null
       })});
       await refresh();
-      setPurchaseErr('Saved.');
+      if(result._unit_mismatch){
+        setPurchaseWarn(`Saved — but cost was NOT synced to linked ingredient "${result._unit_mismatch.ingredient_name}": ${result._unit_mismatch.message}`);
+      } else {
+        setPurchaseErr('Saved.');
+      }
     } catch(e){
       const raw=e.message||'';
       let parsed={}; try{parsed=JSON.parse(raw);}catch{}
@@ -687,6 +692,9 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
       const ing=await api(`/api/inventory/${item.id}/link-ingredient`,{method:'POST',body:JSON.stringify({ingredient_id:ingId})});
       setLinkedIng(ing);
       setShowLinkPicker(false);
+      if(ing._unit_mismatch){
+        setLinkErr(`Linked — but cost will not auto-sync: ${ing._unit_mismatch.message}`);
+      }
       await refresh();
     } catch(e){
       const raw=e.message||'';
@@ -760,6 +768,7 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
           {cpbu&&<div className="muted" style={{fontSize:12,padding:'6px 0'}}>Cost per base unit: <strong style={{color:'#86efac'}}>${cpbu}</strong> / {form.unit||'unit'}</div>}
           {form.purchase_unit&&form.unit&&form.purchase_unit.toLowerCase()!==form.unit.toLowerCase()&&!cpbu&&<div className="muted" style={{fontSize:11,color:'#fde68a',padding:'4px 0'}}>Cross-unit conversion — save to compute via server.</div>}
           {purchaseErr&&<div style={{fontSize:12,color:purchaseErr==='Saved.'?'#86efac':'#fca5a5',marginTop:4}}>{purchaseErr}</div>}
+          {purchaseWarn&&<div style={{fontSize:12,color:'#fde68a',marginTop:4,lineHeight:1.4}}>⚠️ {purchaseWarn}</div>}
           <button onClick={savePurchase} disabled={savingPurchase} style={{marginTop:8,padding:'7px 14px',fontSize:13}}>{savingPurchase?'Saving…':'Save Purchase Info'}</button>
         </div>
 
@@ -767,7 +776,10 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
           <div style={{fontWeight:700,fontSize:13,marginBottom:8,color:'#fb923c'}}>Ingredient Link</div>
           {linkedIng
             ?<>
-              <div className="muted" style={{fontSize:13,marginBottom:8}}>Linked to: <strong style={{color:'white'}}>{linkedIng.name}</strong> <span style={{fontSize:11}}>(id {linkedIng.id})</span></div>
+              <div className="muted" style={{fontSize:13,marginBottom:8}}>Linked to: <strong style={{color:'white'}}>{linkedIng.name}</strong> <span style={{fontSize:11}}>(id {linkedIng.id})</span>
+                {linkedIng.unit&&item.unit&&linkedIng.unit.toLowerCase()!==item.unit.toLowerCase()&&
+                  <span style={{marginLeft:8,fontSize:11,color:'#fde68a'}}>⚠️ {item.unit}→{linkedIng.unit}</span>}
+              </div>
               <button onClick={unlinkIngredient} disabled={unlinkingIng} style={{padding:'5px 12px',fontSize:12,background:'rgba(239,68,68,.15)',color:'#fca5a5',border:'1px solid rgba(239,68,68,.3)'}}>{unlinkingIng?'Unlinking…':'Unlink'}</button>
             </>
             :<>
@@ -779,7 +791,7 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
               {showLinkPicker&&<LinkIngredientPicker inventory={item} api={api} onLink={linkIngredient} onCancel={()=>setShowLinkPicker(false)} loading={linkingIng}/>}
             </>
           }
-          {linkErr&&<div style={{fontSize:12,color:'#fca5a5',marginTop:6}}>{linkErr}</div>}
+          {linkErr&&<div style={{fontSize:12,color:linkErr.startsWith('Linked')?'#fde68a':'#fca5a5',marginTop:6,lineHeight:1.4}}>{linkErr.startsWith('Linked')?'⚠️ ':''}{linkErr}</div>}
         </div>
       </>}
     </div>
@@ -883,6 +895,12 @@ function IngredientModal({ingredient,inventory,onSave,onClose}){
   const cps=form.cost&&form.servings_per_purchase?(Number(form.cost)/Number(form.servings_per_purchase)).toFixed(4):'—';
   const linkedInv=inventory.find(i=>String(i.id)===String(form.inventory_item_id));
   const cpbu=linkedInv?.cost_per_base_unit;
+  // Warn when inventory base unit differs from ingredient unit — cost may not auto-sync.
+  const unitsDiffer=linkedInv&&form.unit&&linkedInv.unit&&
+    linkedInv.unit.trim().toLowerCase()!==form.unit.trim().toLowerCase();
+  const KNOWN_PHYSICAL=['lb','oz','kg','g','liter','ml','qt','cup','fl oz','tbsp','tsp'];
+  const unitMismatchWarn=unitsDiffer&&
+    (!KNOWN_PHYSICAL.includes(linkedInv.unit.toLowerCase())||!KNOWN_PHYSICAL.includes(form.unit.toLowerCase()));
 
   async function handleSave(){
     setSaveErr('');
@@ -908,8 +926,9 @@ function IngredientModal({ingredient,inventory,onSave,onClose}){
       </div>
       <div className="muted" style={{fontSize:12,padding:'6px 0'}}>
         Cost per serving: <strong style={{color:'#86efac'}}>${cps}</strong>
-        {cpbu&&<span> &nbsp;|&nbsp; Inventory cost/unit: <strong style={{color:'#86efac'}}>${Number(cpbu).toFixed(4)}</strong></span>}
+        {cpbu&&<span> &nbsp;|&nbsp; Inventory cost/unit: <strong style={{color:'#86efac'}}>${Number(cpbu).toFixed(4)}</strong> / {linkedInv.unit}</span>}
       </div>
+      {unitMismatchWarn&&<div style={{fontSize:12,color:'#fde68a',padding:'4px 0',lineHeight:1.4}}>⚠️ Inventory unit is "{linkedInv.unit}" but ingredient unit is "{form.unit}" — purchase cost will not auto-sync. Update the ingredient unit to match, or set a conversion_factor on the inventory item.</div>}
       <label><div className="muted">Supplier</div><input value={form.supplier} onChange={e=>set('supplier',e.target.value)}/></label>
       <label><div className="muted">Link to Inventory Item</div>
         <select value={form.inventory_item_id||''} onChange={e=>set('inventory_item_id',e.target.value||null)} style={{background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:12,padding:'11px 13px',width:'100%'}}>

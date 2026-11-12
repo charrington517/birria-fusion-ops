@@ -243,15 +243,13 @@ router.put('/inventory/:id/purchase', async (req, res, next) => {
       );
 
       // Propagate to linked ingredient if one exists.
+      let unitMismatch = null;
       if (cpbu !== null) {
         const ingRes = await client.query(
-          'SELECT id, unit FROM ingredients WHERE inventory_item_id=$1 LIMIT 1', [id]
+          'SELECT id, unit, name FROM ingredients WHERE inventory_item_id=$1 LIMIT 1', [id]
         );
         if (ingRes.rows.length) {
           const ing = ingRes.rows[0];
-          // Convert cost_per_base_unit from inventory base unit to ingredient usage unit.
-          // e.g. inventory base=oz, ingredient unit=g → cost per gram.
-          // If units are incompatible without a factor, skip propagation rather than error.
           let ingCost = cpbu;
           try {
             ingCost = await costPerIngredientUnit(cpbu, inv.unit, ing.unit, cf);
@@ -260,21 +258,29 @@ router.put('/inventory/:id/purchase', async (req, res, next) => {
             ingCost = null;
           }
           if (ingCost !== null) {
-            // cost = cost per one ingredient unit; servings_per_purchase = 1
-            // because the costing formula is: line_cost = quantity * (cost / spp)
-            // and cost already represents cost-per-unit.
             await client.query(
               'UPDATE ingredients SET cost=$1, servings_per_purchase=1 WHERE id=$2',
               [Number(ingCost.toFixed(6)), ing.id]
             );
+          } else {
+            // Signal to the caller that cost was NOT propagated.
+            unitMismatch = {
+              inventory_unit: inv.unit,
+              ingredient_unit: ing.unit,
+              ingredient_name: ing.name,
+              message: `Cannot convert "${inv.unit}" to "${ing.unit}" — ingredient cost was not updated. ` +
+                       `Edit the ingredient manually or add a conversion_factor.`
+            };
           }
         }
       }
 
-      return invUpd.rows[0];
+      return { inv: invUpd.rows[0], unitMismatch };
     });
 
-    res.json(updated);
+    const response = updated.inv;
+    if (updated.unitMismatch) response._unit_mismatch = updated.unitMismatch;
+    res.json(response);
   } catch (err) { next(err); }
 });
 
@@ -316,14 +322,16 @@ router.post('/inventory/:id/create-ingredient', async (req, res, next) => {
 // Link an existing ingredient to an inventory item.
 // Rejects if the inventory item already has a different ingredient linked.
 // Rejects if the ingredient is already linked to a different inventory item.
+// Returns _unit_mismatch warning when units are incompatible (cost won't auto-sync).
 router.post('/inventory/:id/link-ingredient', async (req, res, next) => {
   try {
     const invId = Number(req.params.id);
     const { ingredient_id } = req.body;
     if (!ingredient_id) return res.status(400).json({ error: 'ingredient_id is required' });
 
-    const invRes = await query('SELECT id FROM inventory WHERE id=$1', [invId]);
+    const invRes = await query('SELECT id, unit FROM inventory WHERE id=$1', [invId]);
     if (!invRes.rows.length) return res.status(404).json({ error: 'Inventory item not found' });
+    const invUnit = invRes.rows[0].unit;
 
     const ingRes = await query('SELECT * FROM ingredients WHERE id=$1', [ingredient_id]);
     if (!ingRes.rows.length) return res.status(404).json({ error: 'Ingredient not found' });
@@ -354,7 +362,28 @@ router.post('/inventory/:id/link-ingredient', async (req, res, next) => {
       'UPDATE ingredients SET inventory_item_id=$1 WHERE id=$2 RETURNING *',
       [invId, ingredient_id]
     );
-    res.json(result.rows[0]);
+    const linked = result.rows[0];
+
+    // Warn if inventory base unit cannot be converted to ingredient usage unit.
+    let unitMismatch = null;
+    const bu = (invUnit    || '').trim().toLowerCase();
+    const iu = (ing.unit   || '').trim().toLowerCase();
+    if (bu && iu && bu !== iu) {
+      try { await costPerIngredientUnit(1, invUnit, ing.unit, null); }
+      catch (_) {
+        unitMismatch = {
+          inventory_unit: invUnit,
+          ingredient_unit: ing.unit,
+          message: `Inventory unit "${invUnit}" cannot be automatically converted to ` +
+                   `ingredient unit "${ing.unit}". Purchase cost will not sync until ` +
+                   `a conversion_factor is set or the ingredient unit is updated.`
+        };
+      }
+    }
+
+    const response = { ...linked };
+    if (unitMismatch) response._unit_mismatch = unitMismatch;
+    res.json(response);
   } catch (err) {
     if (err.code === '23505') {
       return res.status(409).json({ error: 'That inventory item is already linked to another ingredient' });

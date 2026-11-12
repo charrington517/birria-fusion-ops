@@ -716,6 +716,129 @@ async function run() {
     assert.strictEqual(r.status, 401, `Expected 401, got ${r.status}`);
   });
 
+  // ── Unit mismatch warnings ───────────────────────────────────────────────
+
+  await test('PUT /purchase — _unit_mismatch returned when propagation skipped', async () => {
+    // Inventory base=oz, ingredient unit=each: no conversion exists.
+    const inv = await req(server, 'POST', '/api/inventory', {
+      name: 'Mismatch Warn Inv', category: 'Food', unit: 'oz',
+      current_stock: 0, min_stock: 0, cost: 0
+    }, token);
+    createdItems.push(inv.body.id);
+    const ing = await req(server, 'POST', '/api/ingredients', {
+      name: 'Mismatch Warn Ing', category: 'Food', unit: 'each',
+      cost: 9.99, servings_per_purchase: 5, inventory_item_id: inv.body.id
+    }, token);
+    createdIngredients.push(ing.body.id);
+
+    const r = await req(server, 'PUT', `/api/inventory/${inv.body.id}/purchase`, {
+      purchase_unit: 'lb', pkg_qty: 1, purchase_price: 4.00
+    }, token);
+    assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+    assert.ok(r.body._unit_mismatch, 'Should return _unit_mismatch when propagation skipped');
+    assert.strictEqual(r.body._unit_mismatch.inventory_unit, 'oz');
+    assert.strictEqual(r.body._unit_mismatch.ingredient_unit, 'each');
+    assert.ok(r.body._unit_mismatch.message.length > 0);
+
+    // Ingredient cost must be unchanged.
+    const ings = await req(server, 'GET', '/api/ingredients', null, token);
+    const still = ings.body.find(i => i.id === ing.body.id);
+    assert.ok(Math.abs(Number(still.cost) - 9.99) < 0.001, 'Cost must be unchanged');
+    assert.strictEqual(Number(still.servings_per_purchase), 5, 'spp must be unchanged');
+  });
+
+  await test('PUT /purchase — no _unit_mismatch when propagation succeeds', async () => {
+    const inv = await req(server, 'POST', '/api/inventory', {
+      name: 'NoMismatch Inv', category: 'Food', unit: 'oz',
+      current_stock: 0, min_stock: 0, cost: 0
+    }, token);
+    createdItems.push(inv.body.id);
+    const ing = await req(server, 'POST', '/api/ingredients', {
+      name: 'NoMismatch Ing', category: 'Food', unit: 'oz',
+      cost: 0, servings_per_purchase: 1, inventory_item_id: inv.body.id
+    }, token);
+    createdIngredients.push(ing.body.id);
+
+    const r = await req(server, 'PUT', `/api/inventory/${inv.body.id}/purchase`, {
+      purchase_unit: 'lb', pkg_qty: 1, purchase_price: 4.00
+    }, token);
+    assert.strictEqual(r.status, 200);
+    assert.ok(!r.body._unit_mismatch, 'Should NOT return _unit_mismatch when propagation succeeds');
+  });
+
+  await test('POST /link-ingredient — _unit_mismatch returned for incompatible units', async () => {
+    const inv = await req(server, 'POST', '/api/inventory', {
+      name: 'LinkMismatch Inv', category: 'Food', unit: 'oz',
+      current_stock: 0, min_stock: 0, cost: 0
+    }, token);
+    createdItems.push(inv.body.id);
+    const ing = await req(server, 'POST', '/api/ingredients', {
+      name: 'LinkMismatch Ing', category: 'Food', unit: 'each',
+      cost: 5.00, servings_per_purchase: 10
+    }, token);
+    createdIngredients.push(ing.body.id);
+
+    const r = await req(server, 'POST', `/api/inventory/${inv.body.id}/link-ingredient`,
+      { ingredient_id: ing.body.id }, token);
+    assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+    assert.ok(r.body._unit_mismatch, 'Should return _unit_mismatch for oz→each');
+    assert.ok(r.body._unit_mismatch.message.includes('conversion_factor'));
+
+    // Ingredient cost must NOT be changed by linking.
+    const ings = await req(server, 'GET', '/api/ingredients', null, token);
+    const still = ings.body.find(i => i.id === ing.body.id);
+    assert.ok(Math.abs(Number(still.cost) - 5.00) < 0.001, 'Link must not overwrite cost');
+    assert.strictEqual(Number(still.servings_per_purchase), 10, 'Link must not overwrite spp');
+  });
+
+  await test('POST /link-ingredient — no _unit_mismatch for compatible units', async () => {
+    const inv = await req(server, 'POST', '/api/inventory', {
+      name: 'LinkCompat Inv', category: 'Food', unit: 'oz',
+      current_stock: 0, min_stock: 0, cost: 0
+    }, token);
+    createdItems.push(inv.body.id);
+    const ing = await req(server, 'POST', '/api/ingredients', {
+      name: 'LinkCompat Ing', category: 'Food', unit: 'g',
+      cost: 0, servings_per_purchase: 1
+    }, token);
+    createdIngredients.push(ing.body.id);
+
+    const r = await req(server, 'POST', `/api/inventory/${inv.body.id}/link-ingredient`,
+      { ingredient_id: ing.body.id }, token);
+    assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+    assert.ok(!r.body._unit_mismatch, 'oz→g is a known conversion, no mismatch warning expected');
+  });
+
+  await test('Legacy ingredients: link-ingredient does not overwrite existing cost/spp', async () => {
+    // Simulate linking an existing production-style ingredient (spp>1) to an inventory item.
+    // The link operation must only set inventory_item_id, never touch cost or spp.
+    const inv = await req(server, 'POST', '/api/inventory', {
+      name: 'Legacy Link Inv', category: 'Dairy', unit: 'oz',
+      current_stock: 0, min_stock: 0, cost: 0
+    }, token);
+    createdItems.push(inv.body.id);
+    // Simulate Oaxaca Cheese: cost=$6.00, spp=16 (16-oz package)
+    const ing = await req(server, 'POST', '/api/ingredients', {
+      name: 'Legacy Cheese Ing', category: 'Dairy', unit: 'oz',
+      cost: 6.00, servings_per_purchase: 16
+    }, token);
+    createdIngredients.push(ing.body.id);
+
+    const r = await req(server, 'POST', `/api/inventory/${inv.body.id}/link-ingredient`,
+      { ingredient_id: ing.body.id }, token);
+    assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+
+    // cost and spp must be exactly as before.
+    const ings = await req(server, 'GET', '/api/ingredients', null, token);
+    const still = ings.body.find(i => i.id === ing.body.id);
+    assert.ok(Math.abs(Number(still.cost) - 6.00) < 0.001,
+      `cost must be $6.00, got $${still.cost}`);
+    assert.strictEqual(Number(still.servings_per_purchase), 16,
+      `spp must be 16, got ${still.servings_per_purchase}`);
+    assert.strictEqual(Number(still.inventory_item_id), inv.body.id,
+      'inventory_item_id must be set');
+  });
+
   // ── Cleanup ───────────────────────────────────────────────────────────────
   for (const id of createdIngredients) {
     await pool.query('DELETE FROM ingredients WHERE id=$1', [id]).catch(() => {});
