@@ -592,6 +592,8 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
   const isNew=!item.id;
   const [form,setForm]=useState({id:item.id,name:item.name||'',category:item.category||categories[0]||'Food',unit:item.unit||'each',current_stock:item.current_stock??'',min_stock:item.min_stock??'',max_stock:item.max_stock??'',cost:item.cost||'',supplier:item.supplier||'',supplier_id:item.supplier_id||null,forecast_per_event:item.forecast_per_event||'',barcode:item.barcode||'',purchase_unit:item.purchase_unit||'',pkg_qty:item.pkg_qty||'',purchase_price:item.purchase_price||'',conversion_factor:item.conversion_factor||''});
   const [barcodeErr,setBarcodeErr]=useState('');
+  const [saveErr,setSaveErr]=useState('');
+  const [saving,setSaving]=useState(false);
   const [purchaseErr,setPurchaseErr]=useState('');
   const [purchaseWarn,setPurchaseWarn]=useState('');
   const [savingPurchase,setSavingPurchase]=useState(false);
@@ -645,7 +647,37 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
 
   async function handleSave(){
     if(barcodeErr) return;
-    await onSave(form);
+    setSaving(true); setSaveErr('');
+    try {
+      await onSave(form);
+      // onSave closes the modal for new items. For existing items with purchase
+      // fields, we need to run the purchase preview AFTER the CRUD save but
+      // onSave also closes the modal. So we use a direct API call here instead
+      // of onSave when purchase fields are present on an existing item.
+    } catch(e){
+      const raw=e.message||''; let parsed={}; try{parsed=JSON.parse(raw);}catch{}
+      setSaveErr(parsed.error||raw||'Save failed.');
+    } finally { setSaving(false); }
+  }
+
+  // Unified save: saves item fields then immediately runs purchase preview.
+  // Called by the single Save button when purchase fields are present.
+  async function handleSaveWithPurchase(){
+    if(barcodeErr) return;
+    setSaving(true); setSaveErr('');
+    try {
+      // Save base item fields via CRUD without closing the modal.
+      await api(`/api/inventory/${item.id}`,{method:'PUT',body:JSON.stringify(form)});
+      await refresh();
+    } catch(e){
+      const raw=e.message||''; let parsed={}; try{parsed=JSON.parse(raw);}catch{}
+      setSaveErr(parsed.error||raw||'Save failed.');
+      setSaving(false);
+      return;
+    }
+    setSaving(false);
+    // Now run purchase preview — this may show PurchaseSyncConfirm or apply directly.
+    await savePurchase();
   }
 
   async function savePurchase(){
@@ -697,11 +729,14 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
       const result=await api(`/api/inventory/${item.id}/purchase`,{method:'PUT',body:JSON.stringify(body)});
       await refresh();
       if(result._unit_mismatch){
+        // Unit mismatch — stay open so user can see the warning.
         setPurchaseWarn(`Saved — but cost was NOT synced to linked ingredient "${result._unit_mismatch.ingredient_name}": ${result._unit_mismatch.message}`);
       } else if(result._ingredient_skipped){
-        setPurchaseWarn('Purchase info saved. Ingredient cost was not changed.');
+        // User chose Skip — close modal, purchase info is saved.
+        onClose();
       } else {
-        setPurchaseErr('Saved.');
+        // Clean save — close modal.
+        onClose();
       }
     } catch(e){
       const raw=e.message||'';
@@ -792,7 +827,12 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
           {suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
       </label>
-      <button className="primary" onClick={handleSave}>Save Item</button>
+      {saveErr&&<div style={{fontSize:12,color:'#fca5a5',marginTop:4}}>{saveErr}</div>}
+      <button className="primary"
+        onClick={item.id&&(form.purchase_price||form.pkg_qty||form.purchase_unit)?handleSaveWithPurchase:handleSave}
+        disabled={saving||savingPurchase}>
+        {saving?'Saving…':savingPurchase?'Checking cost…':'Save Item'}
+      </button>
 
       {!isNew&&<>
         <div style={{borderTop:'1px solid rgba(255,255,255,.08)',margin:'16px 0 12px',paddingTop:12}}>
