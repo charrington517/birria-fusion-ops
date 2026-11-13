@@ -18,3 +18,64 @@ select option{background:#141417;color:white}
 
 button.danger{background:rgba(239,68,68,.25);color:#fca5a5}
 button.danger:hover{background:rgba(239,68,68,.45)}
+
+/* ── Inventory modal mobile responsiveness ──────────────────────────────────
+   The modal-card already has max-height:90vh and overflow:auto from the base
+   rule above. These rules fix the inner form grids and ensure the modal
+   itself does not overflow or clip on narrow screens (320px–430px).
+   The purchase section uses 1fr 1fr grids that collapse to single-column.
+   The modal overlay uses padding:12px on narrow screens so the card does not
+   touch the screen edges and the keyboard does not push it off-screen.
+   touch-action:manipulation removes the 300ms tap delay on mobile buttons.
+   ──────────────────────────────────────────────────────────────────────── */
+@media(max-width:600px){
+  .modal{
+    padding:12px;
+    align-items:flex-start;
+    padding-top:env(safe-area-inset-top,12px);
+  }
+  .modal-card{
+    width:100%;
+    max-height:calc(100dvh - 24px);
+    border-radius:16px;
+    padding:16px;
+    overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
+  }
+  /* Collapse all inline grid layouts inside the modal form to single column */
+  .modal-card .form>div[style*="grid"]{
+    display:flex !important;
+    flex-direction:column !important;
+    gap:10px !important;
+  }
+  /* Ensure inputs and selects are full-width and have comfortable tap targets */
+  .modal-card input,
+  .modal-card select,
+  .modal-card textarea{
+    font-size:16px; /* prevents iOS auto-zoom on focus */
+    min-height:44px;
+    padding:10px 12px;
+  }
+  /* Buttons in the modal need comfortable tap targets */
+  .modal-card button{
+    min-height:44px;
+    touch-action:manipulation;
+  }
+  /* Save Item primary button — full width on mobile */
+  .modal-card button.primary{
+    width:100%;
+    margin-top:4px;
+  }
+  /* Purchase sync confirm action buttons — stack vertically */
+  .modal-card .purchase-actions{
+    flex-direction:column !important;
+  }
+  .modal-card .purchase-actions button{
+    width:100%;
+  }
+  /* Ingredient link row — stack on narrow screens */
+  .modal-card .ing-link-row{
+    flex-direction:column !important;
+    align-items:flex-start !important;
+  }
+}
