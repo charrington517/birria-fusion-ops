@@ -817,7 +817,7 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}><h3 style={{margin:0}}>{isNew?'Add':'Edit'} Inventory Item</h3><button onClick={onClose} style={{minWidth:44,minHeight:44,fontSize:20,lineHeight:1}}>×</button></div>
     <div className="form">
       <label><div className="muted">Name</div><input value={form.name} onChange={e=>set('name',e.target.value)}/></label>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+      <div className="inv-form-grid-2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
         <label><div className="muted">Category</div>
           <select value={form.category} onChange={e=>set('category',e.target.value)} style={{background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:12,padding:'11px 13px',width:'100%',fontSize:'inherit'}}>
             {catOpts.map(o=><option key={o} value={o}>{o}</option>)}
@@ -831,12 +831,12 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
         <input value={form.barcode} onChange={e=>handleBarcode(e.target.value)} placeholder="Scan or type barcode digits…" inputMode="numeric"/>
         {barcodeErr&&<div style={{fontSize:11,color:'#fca5a5',marginTop:3}}>{barcodeErr}</div>}
       </label>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+      <div className="inv-form-grid-3" style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
         <label><div className="muted">Current Stock</div><input type="number" step="0.01" value={form.current_stock} onChange={e=>set('current_stock',e.target.value)}/></label>
         <label><div className="muted">Min Stock</div><input type="number" step="0.01" value={form.min_stock} onChange={e=>set('min_stock',e.target.value)}/></label>
         <label><div className="muted">Max Stock</div><input type="number" step="0.01" value={form.max_stock} onChange={e=>set('max_stock',e.target.value)}/></label>
       </div>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+      <div className="inv-form-grid-2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
         <label><div className="muted">Unit Cost ($) <span style={{fontSize:11,opacity:.6}}>legacy / override</span></div><input type="number" step="0.01" value={form.cost} onChange={e=>set('cost',e.target.value)}/></label>
         <label><div className="muted">Forecast / Event</div><input type="number" step="0.1" value={form.forecast_per_event} onChange={e=>set('forecast_per_event',e.target.value)}/></label>
       </div>
@@ -856,11 +856,11 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
       {!isNew&&<>
         <div style={{borderTop:'1px solid rgba(255,255,255,.08)',margin:'16px 0 12px',paddingTop:12}}>
           <div style={{fontWeight:700,fontSize:13,marginBottom:10,color:'#fb923c'}}>Purchase &amp; Costing</div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <div className="inv-purchase-grid" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
             <label><div className="muted">Purchase Unit</div><Sel value={form.purchase_unit||''} onChange={v=>set('purchase_unit',v)} options={[''].concat(UNIT_OPTIONS)}/></label>
             <label><div className="muted">Pkg Qty <span style={{fontSize:11,opacity:.6}}>(total base units per package)</span></div><input type="number" inputMode="decimal" step="0.001" min="0" value={form.pkg_qty} onChange={e=>set('pkg_qty',e.target.value)} placeholder="e.g. 480"/></label>
           </div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginTop:8}}>
+          <div className="inv-purchase-grid" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginTop:8}}>
             <label><div className="muted">Purchase Price ($)</div><input type="number" inputMode="decimal" step="0.01" min="0" value={form.purchase_price} onChange={e=>set('purchase_price',e.target.value)} placeholder="e.g. 42.00"/></label>
             <label><div className="muted">Conv. Factor <span style={{fontSize:11,opacity:.6}}>override</span></div><input type="number" inputMode="decimal" step="0.0001" min="0" value={form.conversion_factor} onChange={e=>set('conversion_factor',e.target.value)} placeholder="optional"/></label>
           </div>

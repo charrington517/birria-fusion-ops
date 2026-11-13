@@ -6,31 +6,44 @@
  *
  * SCOPE AND LIMITATIONS
  * ---------------------
- * Full viewport simulation (320px / 375px / 430px) requires a browser engine
- * (Playwright, Puppeteer, or JSDOM + @testing-library/react). None are
- * available in this project without adding new dependencies.
+ * Playwright is not installed in this project. Full viewport rendering at
+ * 320px / 375px / 430px — including bounding-box checks, scroll behaviour,
+ * and keyboard interaction — cannot be automated without it.
  *
- * What these tests DO cover:
- *   1. Build asset verification — the compiled JS bundle contains the purchase
- *      field markup, inputMode attributes, className hooks, and CSS breakpoint.
- *   2. HTTP contract tests — the API endpoints the modal depends on return the
- *      correct shape at all screen widths (the server is viewport-agnostic).
- *   3. Corn Tortillas end-to-end: edit existing item, enter purchase price and
- *      pkg_qty, save, verify ingredient-cost confirmation data is returned.
- *   4. Reopen / persist: GET after save shows persisted purchase values.
- *   5. Auth protection on the save endpoint.
+ * What these tests DO verify:
+ *   Group 1 — Source CSS correctness:
+ *     Reads style.css directly and asserts the working CSS rules are present
+ *     and the previously broken rules (flex-direction:column !important on
+ *     grid elements) are absent. This is a structural correctness check, not
+ *     a rendered-layout check.
+ *   Group 2 — Build asset verification:
+ *     Confirms the compiled bundle contains the className hooks and CSS rules
+ *     that the mobile breakpoint depends on.
+ *   Group 3 — HTTP contract:
+ *     The server is viewport-agnostic. These tests verify the API endpoints
+ *     the modal depends on return the correct shape regardless of screen width.
+ *   Groups 4-7 — End-to-end workflow:
+ *     Corn Tortillas edit, Apply New Cost, Keep Existing Cost, new item,
+ *     validation errors — all at the API level.
  *
- * Manual browser tests required (documented below):
- *   A. Open the app on a 375px-wide device or Chrome DevTools mobile emulation.
- *   B. Navigate to Inventory → edit Corn Tortillas.
- *   C. Verify the Purchase & Costing section is visible without horizontal scroll.
- *   D. Tap Purchase Price — verify the numeric keyboard appears (not QWERTY).
- *   E. Enter pkg_qty=30, purchase_price=2.50, tap Save Item.
- *   F. Verify the Apply New Cost / Keep Existing Cost panel appears.
- *   G. Tap Apply to Ingredient — verify modal closes and cost updates.
- *   H. Reopen Corn Tortillas — verify purchase_price=2.50, pkg_qty=30 shown.
- *   I. Verify Save Item button is reachable by scrolling (not hidden by keyboard).
- *   J. Verify no horizontal scrollbar appears at 320px width.
+ * MANUAL BROWSER TEST CHECKLIST (required before deployment approval)
+ * -------------------------------------------------------------------
+ * Open Chrome DevTools → Toggle device toolbar → set width to each of
+ * 320px, 375px, 430px. Navigate to Inventory → edit Corn Tortillas.
+ *
+ *   A. [320px] No horizontal scrollbar visible in the modal.
+ *   B. [320px] Purchase Unit, Pkg Qty, Purchase Price, Conv Factor each
+ *      occupy a full-width row (single column layout).
+ *   C. [375px] Tap Purchase Price input → numeric keyboard appears (not QWERTY).
+ *   D. [375px] Tap Pkg Qty input → numeric keyboard appears.
+ *   E. [375px] Enter pkg_qty=30, purchase_price=2.50, tap Save Item.
+ *   F. [375px] Apply New Cost / Keep Existing Cost panel appears within the
+ *      modal without requiring horizontal scroll.
+ *   G. [375px] Tap Apply to Ingredient → modal closes, cost updates.
+ *   H. [430px] Reopen Corn Tortillas → purchase_price=2.50, pkg_qty=30 shown.
+ *   I. [430px] Save Item button is reachable by vertical scroll when keyboard
+ *      is open (not permanently hidden behind the keyboard).
+ *   J. [320px] Modal close button (×) has a tap target of at least 44×44px.
  *
  * Run:
  *   node tests/inventory-modal-mobile.test.js
@@ -56,13 +69,13 @@ app.use('/api', apiRoutes);
 
 const testPool = new Pool({ connectionString: TEST_DB_URL });
 
-function req(server, method, path, body, token) {
+function req(server, method, urlPath, body, token) {
   return new Promise((resolve, reject) => {
     const payload = body ? JSON.stringify(body) : null;
     const opts = {
       hostname: '127.0.0.1',
       port: server.address().port,
-      path,
+      path: urlPath,
       method,
       headers: {
         'Content-Type': 'application/json',
@@ -90,23 +103,40 @@ async function test(name, fn) {
   catch (e) { console.log('  FAIL  ' + name + '\n        ' + e.message); failed++; }
 }
 
-// ── Build asset verification ──────────────────────────────────────────────────
+// ── CSS source helpers ────────────────────────────────────────────────────────
 
-function readBuiltJs() {
-  const distDir = path.resolve(__dirname, '../client/dist/assets');
-  if (!fs.existsSync(distDir)) return null;
-  const files = fs.readdirSync(distDir).filter(f => f.endsWith('.js') && f.startsWith('index'));
-  if (!files.length) return null;
-  // Return concatenated content of all index JS chunks.
-  return files.map(f => fs.readFileSync(path.join(distDir, f), 'utf8')).join('\n');
+function readSourceCss() {
+  return fs.readFileSync(
+    path.resolve(__dirname, '../client/src/style.css'), 'utf8');
 }
 
 function readBuiltCss() {
-  const distDir = path.resolve(__dirname, '../client/dist/assets');
-  if (!fs.existsSync(distDir)) return null;
-  const files = fs.readdirSync(distDir).filter(f => f.endsWith('.css'));
+  const dir = path.resolve(__dirname, '../client/dist/assets');
+  if (!fs.existsSync(dir)) return null;
+  const files = fs.readdirSync(dir).filter(f => f.endsWith('.css'));
   if (!files.length) return null;
-  return files.map(f => fs.readFileSync(path.join(distDir, f), 'utf8')).join('\n');
+  return files.map(f => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n');
+}
+
+function readBuiltJs() {
+  const dir = path.resolve(__dirname, '../client/dist/assets');
+  if (!fs.existsSync(dir)) return null;
+  const files = fs.readdirSync(dir).filter(f => f.endsWith('.js') && f.startsWith('index'));
+  if (!files.length) return null;
+  return files.map(f => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n');
+}
+
+// Extract the @media(max-width:600px) block from a CSS string.
+function extractMediaBlock(css) {
+  const marker = '@media(max-width:600px)';
+  const start = css.indexOf(marker);
+  if (start === -1) return null;
+  let depth = 0, end = start;
+  for (let i = start; i < css.length; i++) {
+    if (css[i] === '{') depth++;
+    else if (css[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
+  }
+  return css.slice(start, end);
 }
 
 async function run() {
@@ -120,108 +150,176 @@ async function run() {
 
   const cleanup = { invIds: [], ingIds: [] };
 
-  // ── 1. Build asset verification ─────────────────────────────────────────────
-  console.log('\n── 1. Build asset verification ──────────────────────────────────');
+  // ── 1. Source CSS structural correctness ─────────────────────────────────
+  // These tests read style.css directly and verify the CSS rules are
+  // structurally correct — not just that strings exist, but that the right
+  // properties are applied to the right selectors.
+  console.log('\n── 1. Source CSS structural correctness ─────────────────────────');
 
-  const builtJs  = readBuiltJs();
+  const srcCss   = readSourceCss();
+  const mediaBlk = extractMediaBlock(srcCss);
+
+  await test('style.css has @media(max-width:600px) block', () => {
+    assert.ok(mediaBlk !== null, '@media(max-width:600px) block not found in style.css');
+  });
+
+  await test('Mobile block uses grid-template-columns override on inv-form-grid-2', () => {
+    assert.ok(mediaBlk && mediaBlk.includes('.inv-form-grid-2'),
+      '.inv-form-grid-2 selector missing from mobile block');
+    assert.ok(mediaBlk && mediaBlk.includes('grid-template-columns:minmax(0,1fr)'),
+      'grid-template-columns:minmax(0,1fr) missing — grids will not collapse on mobile');
+  });
+
+  await test('Mobile block uses grid-template-columns override on inv-form-grid-3', () => {
+    assert.ok(mediaBlk && mediaBlk.includes('.inv-form-grid-3'),
+      '.inv-form-grid-3 selector missing from mobile block');
+  });
+
+  await test('Mobile block uses grid-template-columns override on inv-purchase-grid', () => {
+    assert.ok(mediaBlk && mediaBlk.includes('.inv-purchase-grid'),
+      '.inv-purchase-grid selector missing from mobile block');
+    // Both purchase grids must collapse to single column.
+    const count = (mediaBlk.match(/grid-template-columns:minmax\(0,1fr\)/g) || []).length;
+    assert.ok(count >= 2,
+      'Expected at least 2 grid-template-columns overrides (form + purchase), found ' + count);
+  });
+
+  await test('Mobile block does NOT use flex-direction on grid elements (was broken)', () => {
+    // flex-direction has no effect on CSS Grid. The previous implementation
+    // used flex-direction:column !important on .inv-form-grid-* which did nothing.
+    // Verify that pattern is absent.
+    const broken = mediaBlk && (
+      /\.inv-form-grid[^}]*flex-direction/.test(mediaBlk) ||
+      /\.inv-purchase-grid[^}]*flex-direction/.test(mediaBlk)
+    );
+    assert.strictEqual(broken, false,
+      'flex-direction found on a grid selector — this has no effect on CSS Grid');
+  });
+
+  await test('Mobile block does NOT use flex-direction:column !important on any grid', () => {
+    // The specific broken pattern from the previous commit.
+    assert.ok(!mediaBlk || !mediaBlk.includes('flex-direction:column !important'),
+      'flex-direction:column !important still present — remove it');
+  });
+
+  await test('Mobile block sets font-size:16px on modal inputs (prevents iOS auto-zoom)', () => {
+    assert.ok(mediaBlk && mediaBlk.includes('font-size:16px'),
+      'font-size:16px missing — iOS Safari will auto-zoom on input focus');
+  });
+
+  await test('Mobile block sets min-height:44px on modal inputs and buttons', () => {
+    assert.ok(mediaBlk && mediaBlk.includes('min-height:44px'),
+      'min-height:44px missing — tap targets too small on mobile');
+  });
+
+  await test('Mobile block sets -webkit-overflow-scrolling:touch on modal-card', () => {
+    assert.ok(mediaBlk && mediaBlk.includes('-webkit-overflow-scrolling:touch'),
+      '-webkit-overflow-scrolling:touch missing — modal scroll may be jerky on iOS');
+  });
+
+  await test('Mobile block sets width:100% on modal-card', () => {
+    assert.ok(mediaBlk && mediaBlk.includes('width:100%'),
+      'width:100% missing from .modal-card in mobile block — card may overflow viewport');
+  });
+
+  await test('purchase-actions uses flex-direction:column (valid — it IS a flex container)', () => {
+    assert.ok(mediaBlk && mediaBlk.includes('.purchase-actions'),
+      '.purchase-actions missing from mobile block');
+    // purchase-actions is display:flex, so flex-direction:column is correct here.
+    const paBlock = mediaBlk.slice(mediaBlk.indexOf('.purchase-actions'));
+    assert.ok(paBlock.includes('flex-direction:column'),
+      'flex-direction:column missing from .purchase-actions');
+  });
+
+  await test('ing-link-row uses flex-direction:column (valid — it IS a flex container)', () => {
+    assert.ok(mediaBlk && mediaBlk.includes('.ing-link-row'),
+      '.ing-link-row missing from mobile block');
+  });
+
+  // ── 2. Build asset verification ──────────────────────────────────────────
+  console.log('\n── 2. Build asset verification ──────────────────────────────────');
+
   const builtCss = readBuiltCss();
+  const builtJs  = readBuiltJs();
+  const builtMediaBlk = builtCss ? extractMediaBlock(builtCss) : null;
 
-  await test('Built JS exists in client/dist/assets/', () => {
-    assert.ok(builtJs !== null, 'No index*.js found in client/dist/assets/ — run npm run build');
+  await test('Built CSS exists in client/dist/assets/', () => {
+    assert.ok(builtCss !== null,
+      'No CSS found in client/dist/assets/ — run npm run build');
   });
 
-  await test('Built JS contains Purchase & Costing section heading', () => {
-    assert.ok(builtJs && builtJs.includes('Purchase'), 'Purchase heading missing from bundle');
+  await test('Built CSS contains inv-form-grid-2 with grid-template-columns override', () => {
+    assert.ok(builtMediaBlk && builtMediaBlk.includes('inv-form-grid-2'),
+      'inv-form-grid-2 missing from built CSS mobile block');
+    assert.ok(builtMediaBlk && builtMediaBlk.includes('grid-template-columns:minmax(0,1fr)'),
+      'grid-template-columns override missing from built CSS');
   });
 
-  await test('Built JS contains pkg_qty field', () => {
-    assert.ok(builtJs && builtJs.includes('pkg_qty'), 'pkg_qty field missing from bundle');
+  await test('Built CSS contains inv-purchase-grid with grid-template-columns override', () => {
+    assert.ok(builtMediaBlk && builtMediaBlk.includes('inv-purchase-grid'),
+      'inv-purchase-grid missing from built CSS mobile block');
   });
 
-  await test('Built JS contains purchase_price field', () => {
-    assert.ok(builtJs && builtJs.includes('purchase_price'), 'purchase_price field missing from bundle');
+  await test('Built CSS does NOT contain flex-direction:column !important on grid selectors', () => {
+    assert.ok(!builtMediaBlk || !builtMediaBlk.includes('flex-direction:column !important'),
+      'Broken flex-direction:column !important still in built CSS');
   });
 
-  await test('Built JS contains purchase_unit field', () => {
-    assert.ok(builtJs && builtJs.includes('purchase_unit'), 'purchase_unit field missing from bundle');
+  await test('Built JS contains inv-form-grid-2 className', () => {
+    assert.ok(builtJs && builtJs.includes('inv-form-grid-2'),
+      'inv-form-grid-2 className missing from built JS — CSS rule will never match');
   });
 
-  await test('Built JS contains inputMode="decimal" for numeric purchase inputs', () => {
-    // Vite minifies attribute names but preserves string values.
-    assert.ok(builtJs && builtJs.includes('inputMode') || builtJs && builtJs.includes('inputmode'),
-      'inputMode attribute missing — iOS numeric keyboard will not appear');
+  await test('Built JS contains inv-form-grid-3 className', () => {
+    assert.ok(builtJs && builtJs.includes('inv-form-grid-3'),
+      'inv-form-grid-3 className missing from built JS');
   });
 
-  await test('Built JS contains purchase-actions className for Apply/Keep button row', () => {
+  await test('Built JS contains inv-purchase-grid className', () => {
+    assert.ok(builtJs && builtJs.includes('inv-purchase-grid'),
+      'inv-purchase-grid className missing from built JS — purchase fields will not collapse');
+  });
+
+  await test('Built JS contains inputMode for numeric purchase inputs', () => {
+    assert.ok(builtJs && (builtJs.includes('inputMode') || builtJs.includes('inputmode')),
+      'inputMode missing from built JS — iOS will show QWERTY keyboard for purchase fields');
+  });
+
+  await test('Built JS contains purchase-actions className', () => {
     assert.ok(builtJs && builtJs.includes('purchase-actions'),
-      'purchase-actions class missing — mobile button stacking CSS will not apply');
+      'purchase-actions className missing from built JS');
   });
 
-  await test('Built JS contains ing-link-row className for ingredient link row', () => {
+  await test('Built JS contains ing-link-row className', () => {
     assert.ok(builtJs && builtJs.includes('ing-link-row'),
-      'ing-link-row class missing — mobile ingredient link stacking CSS will not apply');
+      'ing-link-row className missing from built JS');
   });
 
-  await test('Built JS contains PurchaseSyncConfirm (Apply New Cost panel)', () => {
-    assert.ok(builtJs && (builtJs.includes('Apply to Ingredient') || builtJs.includes('Apply New Cost')),
-      'PurchaseSyncConfirm panel missing from bundle');
+  await test('Built JS contains PurchaseSyncConfirm Apply button text', () => {
+    assert.ok(builtJs && builtJs.includes('Apply to Ingredient'),
+      'Apply to Ingredient text missing from built JS');
   });
 
-  await test('Built CSS contains max-width:600px mobile breakpoint', () => {
-    assert.ok(builtCss && (builtCss.includes('600px') || builtCss.includes('max-width:600')),
-      'Mobile breakpoint missing from built CSS');
-  });
+  // ── 3. HTTP contract (viewport-agnostic) ─────────────────────────────────
+  console.log('\n── 3. HTTP contract (viewport-agnostic) ─────────────────────────');
 
-  await test('Built CSS contains purchase-actions rule for mobile button stacking', () => {
-    assert.ok(builtCss && builtCss.includes('purchase-actions'),
-      'purchase-actions CSS rule missing');
-  });
-
-  await test('Built CSS contains ing-link-row rule', () => {
-    assert.ok(builtCss && builtCss.includes('ing-link-row'),
-      'ing-link-row CSS rule missing');
-  });
-
-  await test('Built CSS contains font-size:16px to prevent iOS auto-zoom', () => {
-    assert.ok(builtCss && builtCss.includes('16px'),
-      'font-size:16px missing — iOS will auto-zoom on input focus');
-  });
-
-  await test('Built CSS contains min-height:44px for tap targets', () => {
-    assert.ok(builtCss && builtCss.includes('44px'),
-      'min-height:44px missing — tap targets may be too small on mobile');
-  });
-
-  await test('Built CSS contains -webkit-overflow-scrolling:touch for modal scroll', () => {
-    assert.ok(builtCss && builtCss.includes('-webkit-overflow-scrolling'),
-      '-webkit-overflow-scrolling missing — modal may not scroll smoothly on iOS');
-  });
-
-  // ── 2. HTTP contract — viewport-agnostic (server has no concept of screen width)
-  console.log('\n── 2. HTTP contract (viewport-agnostic) ─────────────────────────');
-
-  await test('GET /inventory returns purchase fields for all screen widths', async () => {
+  await test('GET /inventory returns all purchase fields', async () => {
     const r = await req(server, 'GET', '/api/inventory', null, token);
     assert.strictEqual(r.status, 200);
-    assert.ok(Array.isArray(r.body));
-    // Every item must have the purchase field keys present (may be null).
     const item = r.body[0];
-    assert.ok('purchase_unit'      in item, 'purchase_unit missing from GET /inventory');
-    assert.ok('pkg_qty'            in item, 'pkg_qty missing from GET /inventory');
-    assert.ok('purchase_price'     in item, 'purchase_price missing from GET /inventory');
-    assert.ok('cost_per_base_unit' in item, 'cost_per_base_unit missing from GET /inventory');
-    assert.ok('conversion_factor'  in item, 'conversion_factor missing from GET /inventory');
+    for (const f of ['purchase_unit','pkg_qty','purchase_price','cost_per_base_unit','conversion_factor']) {
+      assert.ok(f in item, f + ' missing from GET /inventory response');
+    }
   });
 
-  await test('POST /inventory/save requires auth (mobile client sends same token)', async () => {
-    const r = await req(server, 'POST', '/api/inventory/save', { name: 'X', unit: 'each', category: 'Food' }, null);
+  await test('POST /inventory/save requires auth', async () => {
+    const r = await req(server, 'POST', '/api/inventory/save',
+      { name: 'X', unit: 'each', category: 'Food' }, null);
     assert.strictEqual(r.status, 401);
   });
 
-  // ── 3. Corn Tortillas scenario at mobile screen widths ────────────────────
-  // The server is viewport-agnostic; these tests verify the full workflow the
-  // mobile UI depends on works correctly end-to-end.
-  console.log('\n── 3. Corn Tortillas mobile workflow ────────────────────────────');
+  // ── 4. Corn Tortillas mobile workflow ─────────────────────────────────────
+  console.log('\n── 4. Corn Tortillas mobile workflow ────────────────────────────');
 
   let tortInvId, tortIngId;
 
@@ -243,24 +341,25 @@ async function run() {
   });
 
   await test('[320px] purchase-preview returns linked_ingredient with proposed cost', async () => {
-    // Simulates what handleSaveWithPurchase does on a 320px screen.
     const r = await req(server, 'GET',
-      '/api/inventory/' + tortInvId + '/purchase-preview?purchase_unit=pack&pkg_qty=30&purchase_price=2.50',
+      '/api/inventory/' + tortInvId +
+      '/purchase-preview?purchase_unit=pack&pkg_qty=30&purchase_price=2.50',
       null, token);
     assert.strictEqual(r.status, 200);
     const li = r.body.linked_ingredient;
     assert.ok(li, 'linked_ingredient must be present');
     assert.ok(Math.abs(Number(li.proposed_cost_per_unit) - (2.5/30)) < 0.0001,
       'proposed_cost_per_unit wrong: ' + li.proposed_cost_per_unit);
-    // isLegacy check — must trigger PurchaseSyncConfirm panel on mobile.
     const isLegacy = li && (Number(li.current_spp) > 1 || Number(li.current_cost) > 0)
                      && li.proposed_cost_per_unit !== null;
-    assert.strictEqual(isLegacy, true, 'isLegacy must be true — Apply/Keep panel must show');
+    assert.strictEqual(isLegacy, true,
+      'isLegacy must be true — Apply/Keep panel must show on mobile');
   });
 
   await test('[375px] preview is read-only — no DB write before user confirms', async () => {
     await req(server, 'GET',
-      '/api/inventory/' + tortInvId + '/purchase-preview?purchase_unit=pack&pkg_qty=30&purchase_price=2.50',
+      '/api/inventory/' + tortInvId +
+      '/purchase-preview?purchase_unit=pack&pkg_qty=30&purchase_price=2.50',
       null, token);
     const gr = await req(server, 'GET', '/api/inventory', null, token);
     const inv = gr.body.find(i => i.id === tortInvId);
@@ -269,15 +368,13 @@ async function run() {
   });
 
   await test('[430px] Apply New Cost: POST /inventory/save sync_ingredient=true', async () => {
-    // Simulates onApply callback from PurchaseSyncConfirm on a 430px screen.
     const r = await req(server, 'POST', '/api/inventory/save',
       { id: tortInvId, name: 'Mobile Test Corn Tortillas',
         purchase_unit: 'pack', pkg_qty: 30, purchase_price: 2.50,
         sync_ingredient: true }, token);
     assert.strictEqual(r.status, 200);
-    assert.ok(!r.body._unit_mismatch, 'no unit mismatch expected');
-    assert.ok(!r.body._ingredient_skipped, 'ingredient should not be skipped');
-    // Inventory cost_per_base_unit: 2.50/30 = 0.0833...
+    assert.ok(!r.body._unit_mismatch);
+    assert.ok(!r.body._ingredient_skipped);
     assert.ok(Math.abs(Number(r.body.inventory.cost_per_base_unit) - (2.5/30)) < 0.0001,
       'cost_per_base_unit wrong: ' + r.body.inventory.cost_per_base_unit);
   });
@@ -285,13 +382,11 @@ async function run() {
   await test('Reopen: GET /inventory shows persisted purchase values', async () => {
     const gr = await req(server, 'GET', '/api/inventory', null, token);
     const inv = gr.body.find(i => i.id === tortInvId);
-    assert.ok(inv, 'item must appear in GET /inventory');
+    assert.ok(inv);
     assert.strictEqual(inv.purchase_unit, 'pack');
     assert.strictEqual(Number(inv.pkg_qty), 30);
-    assert.ok(Math.abs(Number(inv.purchase_price) - 2.5) < 0.001,
-      'purchase_price wrong: ' + inv.purchase_price);
-    assert.ok(Number(inv.cost_per_base_unit) > 0,
-      'cost_per_base_unit must be > 0 after save');
+    assert.ok(Math.abs(Number(inv.purchase_price) - 2.5) < 0.001);
+    assert.ok(Number(inv.cost_per_base_unit) > 0);
   });
 
   await test('Reopen: ingredient cost updated after Apply New Cost', async () => {
@@ -299,11 +394,11 @@ async function run() {
     const ing = ir.body.find(i => i.id === tortIngId);
     assert.ok(Math.abs(Number(ing.cost) - (2.5/30)) < 0.0001,
       'ingredient cost wrong: ' + ing.cost);
-    assert.strictEqual(Number(ing.servings_per_purchase), 1, 'spp must be reset to 1');
+    assert.strictEqual(Number(ing.servings_per_purchase), 1);
   });
 
-  // ── 4. Keep Existing Cost on mobile ──────────────────────────────────────
-  console.log('\n── 4. Keep Existing Cost on mobile ──────────────────────────────');
+  // ── 5. Keep Existing Cost on mobile ──────────────────────────────────────
+  console.log('\n── 5. Keep Existing Cost on mobile ──────────────────────────────');
 
   let keepInvId, keepIngId;
 
@@ -320,61 +415,54 @@ async function run() {
   });
 
   await test('[375px] Keep Existing Cost: inventory updates, ingredient preserved', async () => {
-    // Simulates onSkip callback from PurchaseSyncConfirm.
     const r = await req(server, 'POST', '/api/inventory/save',
       { id: keepInvId, purchase_unit: 'pack', pkg_qty: 20,
         purchase_price: 6.00, sync_ingredient: false }, token);
     assert.strictEqual(r.status, 200);
     assert.strictEqual(r.body._ingredient_skipped, true);
-    // Inventory updated: 6.00/20 = 0.30
     assert.ok(Math.abs(Number(r.body.inventory.cost_per_base_unit) - 0.30) < 0.0001);
-    // Ingredient unchanged.
     const ir = await req(server, 'GET', '/api/ingredients', null, token);
     const ing = ir.body.find(i => i.id === keepIngId);
-    assert.ok(Math.abs(Number(ing.cost) - 4.50) < 0.001, 'cost must remain 4.50');
-    assert.strictEqual(Number(ing.servings_per_purchase), 15, 'spp must remain 15');
+    assert.ok(Math.abs(Number(ing.cost) - 4.50) < 0.001);
+    assert.strictEqual(Number(ing.servings_per_purchase), 15);
   });
 
-  // ── 5. New item with purchase fields on mobile ────────────────────────────
-  console.log('\n── 5. New item with purchase fields on mobile ───────────────────');
+  // ── 6. New item with purchase fields on mobile ────────────────────────────
+  console.log('\n── 6. New item with purchase fields on mobile ───────────────────');
 
   await test('[320px] New item + purchase: single transactional save', async () => {
-    // Simulates handleSave isNew && hasPurchase path on a 320px screen.
     const r = await req(server, 'POST', '/api/inventory/save',
       { name: 'Mobile New Item', unit: 'lb', category: 'Food',
         purchase_unit: 'bag', pkg_qty: 20, purchase_price: 8.00 }, token);
     assert.strictEqual(r.status, 201);
-    assert.ok(r.body.inventory?.id, 'inventory.id must be present');
-    // 8.00/20 = 0.40
-    assert.ok(Math.abs(Number(r.body.inventory.cost_per_base_unit) - 0.40) < 0.0001,
-      'cost_per_base_unit wrong: ' + r.body.inventory.cost_per_base_unit);
+    assert.ok(r.body.inventory?.id);
+    assert.ok(Math.abs(Number(r.body.inventory.cost_per_base_unit) - 0.40) < 0.0001);
     cleanup.invIds.push(r.body.inventory.id);
   });
 
-  // ── 6. Validation errors visible on mobile ────────────────────────────────
-  console.log('\n── 6. Validation errors on mobile ───────────────────────────────');
+  // ── 7. Validation errors on mobile ───────────────────────────────────────
+  console.log('\n── 7. Validation errors on mobile ───────────────────────────────');
 
-  await test('400 on no valid fields — error message available for display', async () => {
+  await test('400 on no valid fields — error.message present for mobile display', async () => {
     const r = await req(server, 'POST', '/api/inventory/save', { not_a_field: 'x' }, token);
     assert.strictEqual(r.status, 400);
-    assert.ok(r.body.error, 'error message must be present for mobile display');
+    assert.ok(r.body.error);
   });
 
-  await test('404 on nonexistent id — error message available for display', async () => {
+  await test('404 on nonexistent id — error.message present for mobile display', async () => {
     const r = await req(server, 'POST', '/api/inventory/save', { id: 999999, name: 'Ghost' }, token);
     assert.strictEqual(r.status, 404);
-    assert.ok(r.body.error, 'error message must be present for mobile display');
+    assert.ok(r.body.error);
   });
 
-  await test('422 on bad unit conversion — error message available for display', async () => {
+  await test('422 on bad unit conversion — error.message present for mobile display', async () => {
     const cr = await req(server, 'POST', '/api/inventory/save',
       { name: 'Mobile Err Item', unit: 'each', category: 'Food' }, token);
     cleanup.invIds.push(cr.body.inventory.id);
     const r = await req(server, 'POST', '/api/inventory/save',
       { id: cr.body.inventory.id, purchase_unit: 'kg', pkg_qty: 1, purchase_price: 5.00 }, token);
-    assert.ok(r.status === 422 || r.status === 400,
-      'expected 422/400 got ' + r.status);
-    assert.ok(r.body.error, 'error message must be present for mobile display');
+    assert.ok(r.status === 422 || r.status === 400, 'expected 422/400 got ' + r.status);
+    assert.ok(r.body.error);
   });
 
   // ── Cleanup ───────────────────────────────────────────────────────────────

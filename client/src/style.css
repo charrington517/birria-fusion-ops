@@ -29,11 +29,13 @@ button.danger:hover{background:rgba(239,68,68,.45)}
    touch-action:manipulation removes the 300ms tap delay on mobile buttons.
    ──────────────────────────────────────────────────────────────────────── */
 @media(max-width:600px){
+  /* Modal overlay: reduce padding so card fills narrow screens */
   .modal{
     padding:12px;
     align-items:flex-start;
     padding-top:env(safe-area-inset-top,12px);
   }
+  /* Modal card: full width, dvh height, smooth iOS scroll */
   .modal-card{
     width:100%;
     max-height:calc(100dvh - 24px);
@@ -42,40 +44,45 @@ button.danger:hover{background:rgba(239,68,68,.45)}
     overflow-y:auto;
     -webkit-overflow-scrolling:touch;
   }
-  /* Collapse all inline grid layouts inside the modal form to single column */
-  .modal-card .form>div[style*="grid"]{
-    display:flex !important;
-    flex-direction:column !important;
-    gap:10px !important;
+  /* InventoryModal general field grids: collapse to single column.
+     Scoped to inv-form-grid-2/3 class names set only on InventoryModal
+     grid divs — no other modal is affected. */
+  .inv-form-grid-2,
+  .inv-form-grid-3{
+    grid-template-columns:minmax(0,1fr) !important;
   }
-  /* Ensure inputs and selects are full-width and have comfortable tap targets */
+  /* InventoryModal purchase section: each field gets its own full-width row */
+  .inv-purchase-grid{
+    grid-template-columns:minmax(0,1fr) !important;
+  }
+  /* Inputs/selects: 16px prevents iOS auto-zoom on focus; 44px tap target */
   .modal-card input,
   .modal-card select,
   .modal-card textarea{
-    font-size:16px; /* prevents iOS auto-zoom on focus */
+    font-size:16px;
     min-height:44px;
     padding:10px 12px;
   }
-  /* Buttons in the modal need comfortable tap targets */
+  /* Buttons: 44px tap target, no 300ms tap delay */
   .modal-card button{
     min-height:44px;
     touch-action:manipulation;
   }
-  /* Save Item primary button — full width on mobile */
+  /* Save Item primary button: full width on mobile */
   .modal-card button.primary{
     width:100%;
     margin-top:4px;
   }
-  /* Purchase sync confirm action buttons — stack vertically */
+  /* Apply/Keep/Cancel button row: stack vertically, full width */
   .modal-card .purchase-actions{
-    flex-direction:column !important;
+    flex-direction:column;
   }
   .modal-card .purchase-actions button{
     width:100%;
   }
-  /* Ingredient link row — stack on narrow screens */
+  /* Ingredient link row: stack controls vertically */
   .modal-card .ing-link-row{
-    flex-direction:column !important;
-    align-items:flex-start !important;
+    flex-direction:column;
+    align-items:flex-start;
   }
 }
