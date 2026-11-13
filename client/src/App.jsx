@@ -814,10 +814,10 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
 
   const catOpts = categories.length ? categories : INV_CATEGORIES;
   return <div className="modal"><div className="modal-card">
-    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}><h3 style={{margin:0}}>{isNew?'Add':'Edit'} Inventory Item</h3><button onClick={onClose}>×</button></div>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}><h3 style={{margin:0}}>{isNew?'Add':'Edit'} Inventory Item</h3><button onClick={onClose} style={{minWidth:44,minHeight:44,fontSize:20,lineHeight:1}}>×</button></div>
     <div className="form">
       <label><div className="muted">Name</div><input value={form.name} onChange={e=>set('name',e.target.value)}/></label>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+      <div className="inv-form-grid-2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
         <label><div className="muted">Category</div>
           <select value={form.category} onChange={e=>set('category',e.target.value)} style={{background:'rgba(255,255,255,.065)',border:'1px solid rgba(255,255,255,.1)',color:'white',borderRadius:12,padding:'11px 13px',width:'100%',fontSize:'inherit'}}>
             {catOpts.map(o=><option key={o} value={o}>{o}</option>)}
@@ -831,12 +831,12 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
         <input value={form.barcode} onChange={e=>handleBarcode(e.target.value)} placeholder="Scan or type barcode digits…" inputMode="numeric"/>
         {barcodeErr&&<div style={{fontSize:11,color:'#fca5a5',marginTop:3}}>{barcodeErr}</div>}
       </label>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+      <div className="inv-form-grid-3" style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
         <label><div className="muted">Current Stock</div><input type="number" step="0.01" value={form.current_stock} onChange={e=>set('current_stock',e.target.value)}/></label>
         <label><div className="muted">Min Stock</div><input type="number" step="0.01" value={form.min_stock} onChange={e=>set('min_stock',e.target.value)}/></label>
         <label><div className="muted">Max Stock</div><input type="number" step="0.01" value={form.max_stock} onChange={e=>set('max_stock',e.target.value)}/></label>
       </div>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+      <div className="inv-form-grid-2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
         <label><div className="muted">Unit Cost ($) <span style={{fontSize:11,opacity:.6}}>legacy / override</span></div><input type="number" step="0.01" value={form.cost} onChange={e=>set('cost',e.target.value)}/></label>
         <label><div className="muted">Forecast / Event</div><input type="number" step="0.1" value={form.forecast_per_event} onChange={e=>set('forecast_per_event',e.target.value)}/></label>
       </div>
@@ -856,13 +856,13 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
       {!isNew&&<>
         <div style={{borderTop:'1px solid rgba(255,255,255,.08)',margin:'16px 0 12px',paddingTop:12}}>
           <div style={{fontWeight:700,fontSize:13,marginBottom:10,color:'#fb923c'}}>Purchase &amp; Costing</div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <div className="inv-purchase-grid" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
             <label><div className="muted">Purchase Unit</div><Sel value={form.purchase_unit||''} onChange={v=>set('purchase_unit',v)} options={[''].concat(UNIT_OPTIONS)}/></label>
-            <label><div className="muted">Pkg Qty <span style={{fontSize:11,opacity:.6}}>(total base units per package)</span></div><input type="number" step="0.001" min="0" value={form.pkg_qty} onChange={e=>set('pkg_qty',e.target.value)} placeholder="e.g. 480"/></label>
+            <label><div className="muted">Pkg Qty <span style={{fontSize:11,opacity:.6}}>(total base units per package)</span></div><input type="number" inputMode="decimal" step="0.001" min="0" value={form.pkg_qty} onChange={e=>set('pkg_qty',e.target.value)} placeholder="e.g. 480"/></label>
           </div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginTop:8}}>
-            <label><div className="muted">Purchase Price ($)</div><input type="number" step="0.01" min="0" value={form.purchase_price} onChange={e=>set('purchase_price',e.target.value)} placeholder="e.g. 42.00"/></label>
-            <label><div className="muted">Conv. Factor <span style={{fontSize:11,opacity:.6}}>override</span></div><input type="number" step="0.0001" min="0" value={form.conversion_factor} onChange={e=>set('conversion_factor',e.target.value)} placeholder="optional"/></label>
+          <div className="inv-purchase-grid" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginTop:8}}>
+            <label><div className="muted">Purchase Price ($)</div><input type="number" inputMode="decimal" step="0.01" min="0" value={form.purchase_price} onChange={e=>set('purchase_price',e.target.value)} placeholder="e.g. 42.00"/></label>
+            <label><div className="muted">Conv. Factor <span style={{fontSize:11,opacity:.6}}>override</span></div><input type="number" inputMode="decimal" step="0.0001" min="0" value={form.conversion_factor} onChange={e=>set('conversion_factor',e.target.value)} placeholder="optional"/></label>
           </div>
           {cpbu&&<div className="muted" style={{fontSize:12,padding:'6px 0'}}>Cost per base unit: <strong style={{color:'#86efac'}}>${cpbu}</strong> / {form.unit||'unit'}</div>}
           {form.purchase_unit&&form.unit&&form.purchase_unit.toLowerCase()!==form.unit.toLowerCase()&&!cpbu&&<div className="muted" style={{fontSize:11,color:'#fde68a',padding:'4px 0'}}>Cross-unit conversion — save to compute via server.</div>}
@@ -889,7 +889,7 @@ function InventoryModal({item,onSave,onClose,suppliers=[],categories=[],api,refr
               <button onClick={unlinkIngredient} disabled={unlinkingIng} style={{padding:'5px 12px',fontSize:12,background:'rgba(239,68,68,.15)',color:'#fca5a5',border:'1px solid rgba(239,68,68,.3)'}}>{unlinkingIng?'Unlinking…':'Unlink'}</button>
             </>
             :<>
-              {!showLinkPicker&&<div style={{display:'flex',alignItems:'center',gap:10}}>
+              {!showLinkPicker&&<div className="ing-link-row" style={{display:'flex',alignItems:'center',gap:10}}>
                 <span className="muted" style={{fontSize:13}}>No ingredient linked.</span>
                 <button onClick={createIngredient} disabled={creatingIng} style={{padding:'5px 12px',fontSize:12}}>{creatingIng?'Creating…':'Create Ingredient'}</button>
                 <button onClick={()=>{setShowLinkPicker(true);setLinkErr('');}} style={{padding:'5px 12px',fontSize:12}}>Link Existing</button>
@@ -931,7 +931,7 @@ function PurchaseSyncConfirm({preview,onApply,onSkip,onCancel,saving}){
             <td style={{textAlign:'right',opacity:.6}}>cost={money(li.proposed_cost_per_unit)}, spp=1</td></tr>
       </tbody>
     </table>
-    <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+    <div className="purchase-actions" style={{display:'flex',gap:8,flexWrap:'wrap'}}>
       <button onClick={onApply} disabled={saving}
         style={{padding:'6px 14px',fontSize:12,background:'rgba(134,239,172,.15)',color:'#86efac',border:'1px solid rgba(134,239,172,.3)'}}>
         {saving?'Applying…':'Apply to Ingredient'}
